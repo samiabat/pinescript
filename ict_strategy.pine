@@ -25,8 +25,7 @@ fvg_threshold = input.float(0.0, "FVG Min Size (% of price)", minval=0.0, maxval
 swing_length = input.int(5, "Swing Detection Length", minval=3, maxval=20, group="Market Structure")
 
 // Trade Management
-trade_cooldown = input.int(5, "Minimum Bars Between Trades", minval=1, maxval=50, group="Trade Management", 
-                          tooltip="Prevent consecutive trades within this period")
+trade_cooldown = input.int(5, "Minimum Bars Between Trades", minval=1, maxval=50, group="Trade Management", tooltip="Prevent consecutive trades within this period")
 max_daily_trades = input.int(5, "Max Trades Per Day", minval=1, maxval=20, group="Trade Management")
 
 // Risk Management
@@ -34,8 +33,7 @@ stop_loss_pct = input.float(2.0, "Stop Loss %", minval=0.1, maxval=10.0, group="
 take_profit_pct = input.float(4.0, "Take Profit %", minval=0.1, maxval=20.0, group="Risk Management")
 use_trailing = input.bool(false, "Use Trailing Stop", group="Risk Management")
 trailing_pct = input.float(1.5, "Trailing Stop %", minval=0.1, maxval=10.0, group="Risk Management")
-trailing_offset_mult = input.float(0.5, "Trailing Offset Multiplier", minval=0.1, maxval=1.0, group="Risk Management", 
-                                   tooltip="Multiplier for trail offset (lower = tighter trail, higher = looser trail)")
+trailing_offset_mult = input.float(0.5, "Trailing Offset Multiplier", minval=0.1, maxval=1.0, group="Risk Management", tooltip="Multiplier for trail offset (lower = tighter trail, higher = looser trail)")
 
 // ==================== VARIABLES AND ARRAYS ====================
 
@@ -307,8 +305,7 @@ if long_condition
     trail_offset_ticks = use_trailing ? math.round((entry_price * trailing_pct * trailing_offset_mult / 100) / syminfo.mintick) : na
     
     strategy.entry("Long", strategy.long)
-    strategy.exit("Exit Long", "Long", stop=stop_loss, limit=take_profit,
-                  trail_points=trail_ticks, trail_offset=trail_offset_ticks)
+    strategy.exit("Exit Long", "Long", stop=stop_loss, limit=take_profit, trail_points=trail_ticks, trail_offset=trail_offset_ticks)
     
     last_trade_bar := bar_index
     daily_trade_count += 1
@@ -326,8 +323,7 @@ if short_condition
     trail_offset_ticks = use_trailing ? math.round((entry_price * trailing_pct * trailing_offset_mult / 100) / syminfo.mintick) : na
     
     strategy.entry("Short", strategy.short)
-    strategy.exit("Exit Short", "Short", stop=stop_loss, limit=take_profit,
-                  trail_points=trail_ticks, trail_offset=trail_offset_ticks)
+    strategy.exit("Exit Short", "Short", stop=stop_loss, limit=take_profit, trail_points=trail_ticks, trail_offset=trail_offset_ticks)
     
     last_trade_bar := bar_index
     daily_trade_count += 1

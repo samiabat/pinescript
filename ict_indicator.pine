@@ -100,7 +100,6 @@ detectBullishOrderBlock() =>
     
     // Look for a down candle followed by strong bullish movement
     if close[obLookback] < open[obLookback]  // Down candle
-        bullishMove = false
         upwardMomentum = 0.0
         
         // Check for bullish movement in subsequent candles
@@ -127,7 +126,6 @@ detectBearishOrderBlock() =>
     
     // Look for an up candle followed by strong bearish movement
     if close[obLookback] > open[obLookback]  // Up candle
-        bearishMove = false
         downwardMomentum = 0.0
         
         // Check for bearish movement in subsequent candles

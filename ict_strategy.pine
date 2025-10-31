@@ -44,13 +44,11 @@ bearishColor = input.color(color.new(color.red, 80), "Bearish Zone Color")
 var int lastTradeBar = 0
 
 // Track daily trade count
-var int currentDay = 0
 var int dailyTradeCount = 0
 
 // Reset daily counter when new day starts
-newDay = ta.change(dayofweek) != 0 or ta.change(year) != 0 or ta.change(month) != 0
+newDay = ta.change(time('D')) != 0
 if newDay
-    currentDay := dayofweek
     dailyTradeCount := 0
 
 // ============================================================================
@@ -128,7 +126,6 @@ detectBullishOrderBlock() =>
     
     // Look for a down candle followed by strong bullish movement
     if close[obLookback] < open[obLookback]  // Down candle
-        bullishMove = false
         upwardMomentum = 0.0
         
         // Check for bullish movement in subsequent candles
@@ -155,7 +152,6 @@ detectBearishOrderBlock() =>
     
     // Look for an up candle followed by strong bearish movement
     if close[obLookback] > open[obLookback]  // Up candle
-        bearishMove = false
         downwardMomentum = 0.0
         
         // Check for bearish movement in subsequent candles

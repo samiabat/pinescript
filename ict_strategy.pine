@@ -87,9 +87,13 @@ cleanup_zones(zone_bars, zone_tops, zone_bottoms) =>
 // Reset daily trade count at start of new day
 reset_daily_count() =>
     current_day = dayofweek
-    if current_day != last_trade_day
+    if last_trade_day == -1
+        // First initialization
+        last_trade_day := current_day
+    else if current_day != last_trade_day
+        // New day detected, reset counter
         daily_trade_count := 0
-    last_trade_day := current_day
+        last_trade_day := current_day
 
 // Check if we can take a new trade
 can_trade() =>
@@ -295,10 +299,13 @@ if long_condition
     stop_loss = entry_price * (1 - stop_loss_pct / 100)
     take_profit = entry_price * (1 + take_profit_pct / 100)
     
+    // Calculate trailing stop in ticks (trail_points expects ticks, not price)
+    trail_ticks = use_trailing ? math.round((entry_price * trailing_pct / 100) / syminfo.mintick) : na
+    trail_offset_ticks = use_trailing ? math.round((entry_price * trailing_pct * 0.5 / 100) / syminfo.mintick) : na
+    
     strategy.entry("Long", strategy.long)
     strategy.exit("Exit Long", "Long", stop=stop_loss, limit=take_profit,
-                  trail_points=use_trailing ? (entry_price * trailing_pct / 100) : na,
-                  trail_offset=use_trailing ? (entry_price * trailing_pct * 0.5 / 100) : na)
+                  trail_points=trail_ticks, trail_offset=trail_offset_ticks)
     
     last_trade_bar := bar_index
     daily_trade_count += 1
@@ -310,10 +317,13 @@ if short_condition
     stop_loss = entry_price * (1 + stop_loss_pct / 100)
     take_profit = entry_price * (1 - take_profit_pct / 100)
     
+    // Calculate trailing stop in ticks (trail_points expects ticks, not price)
+    trail_ticks = use_trailing ? math.round((entry_price * trailing_pct / 100) / syminfo.mintick) : na
+    trail_offset_ticks = use_trailing ? math.round((entry_price * trailing_pct * 0.5 / 100) / syminfo.mintick) : na
+    
     strategy.entry("Short", strategy.short)
     strategy.exit("Exit Short", "Short", stop=stop_loss, limit=take_profit,
-                  trail_points=use_trailing ? (entry_price * trailing_pct / 100) : na,
-                  trail_offset=use_trailing ? (entry_price * trailing_pct * 0.5 / 100) : na)
+                  trail_points=trail_ticks, trail_offset=trail_offset_ticks)
     
     last_trade_bar := bar_index
     daily_trade_count += 1

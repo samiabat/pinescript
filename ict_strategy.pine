@@ -88,7 +88,7 @@ cleanup_zones(zone_bars, zone_tops, zone_bottoms) =>
 reset_daily_count() =>
     current_day = dayofweek
     if last_trade_day == -1
-        // First initialization
+        // First initialization - set the day but don't reset counter
         last_trade_day := current_day
     else if current_day != last_trade_day
         // New day detected, reset counter
@@ -300,6 +300,7 @@ if long_condition
     take_profit = entry_price * (1 + take_profit_pct / 100)
     
     // Calculate trailing stop in ticks (trail_points expects ticks, not price)
+    // Trail offset is set to half of trailing percentage for more conservative trailing
     trail_ticks = use_trailing ? math.round((entry_price * trailing_pct / 100) / syminfo.mintick) : na
     trail_offset_ticks = use_trailing ? math.round((entry_price * trailing_pct * 0.5 / 100) / syminfo.mintick) : na
     
@@ -318,6 +319,7 @@ if short_condition
     take_profit = entry_price * (1 - take_profit_pct / 100)
     
     // Calculate trailing stop in ticks (trail_points expects ticks, not price)
+    // Trail offset is set to half of trailing percentage for more conservative trailing
     trail_ticks = use_trailing ? math.round((entry_price * trailing_pct / 100) / syminfo.mintick) : na
     trail_offset_ticks = use_trailing ? math.round((entry_price * trailing_pct * 0.5 / 100) / syminfo.mintick) : na
     

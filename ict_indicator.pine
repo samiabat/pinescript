@@ -203,10 +203,10 @@ generate_buy_signal() =>
     // 1. Bullish market structure
     // 2. Price near bullish order block or filled bearish FVG
     // 3. Cooldown period elapsed
-    // 4. No recent sell signal at same location
+    // 4. No recent sell signal at same bar
     
     cooldown_ok = (bar_index - last_signal_bar) >= signal_cooldown
-    no_conflict = last_signal_type != "sell" or (bar_index - last_signal_bar) > 0
+    no_conflict = last_signal_type != "sell" or (bar_index != last_signal_bar)
     
     if market_structure == "bullish" and cooldown_ok and no_conflict
         // Check if price is at a bullish order block
@@ -232,10 +232,10 @@ generate_sell_signal() =>
     // 1. Bearish market structure
     // 2. Price near bearish order block or filled bullish FVG
     // 3. Cooldown period elapsed
-    // 4. No recent buy signal at same location
+    // 4. No recent buy signal at same bar
     
     cooldown_ok = (bar_index - last_signal_bar) >= signal_cooldown
-    no_conflict = last_signal_type != "buy" or (bar_index - last_signal_bar) > 0
+    no_conflict = last_signal_type != "buy" or (bar_index != last_signal_bar)
     
     if market_structure == "bearish" and cooldown_ok and no_conflict
         // Check if price is at a bearish order block

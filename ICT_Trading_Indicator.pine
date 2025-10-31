@@ -37,24 +37,12 @@ signalConfluence = input.int(2, "Min Confluence Required", minval=1, maxval=4, g
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Swing High/Low Detection
+// Swing High/Low Detection (using ta.pivothigh/pivotlow for accuracy)
 isSwingHigh(len) =>
-    highestHigh = high == ta.highest(high, len * 2 + 1)
-    centeredHigh = true
-    for i = 1 to len
-        if high <= high[i] or high <= high[-i]
-            centeredHigh := false
-            break
-    highestHigh and centeredHigh
+    ta.pivothigh(high, len, len) != na
 
 isSwingLow(len) =>
-    lowestLow = low == ta.lowest(low, len * 2 + 1)
-    centeredLow = true
-    for i = 1 to len
-        if low >= low[i] or low >= low[-i]
-            centeredLow := false
-            break
-    lowestLow and centeredLow
+    ta.pivotlow(low, len, len) != na
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ORDER BLOCKS DETECTION

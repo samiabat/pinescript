@@ -34,6 +34,8 @@ stop_loss_pct = input.float(2.0, "Stop Loss %", minval=0.1, maxval=10.0, group="
 take_profit_pct = input.float(4.0, "Take Profit %", minval=0.1, maxval=20.0, group="Risk Management")
 use_trailing = input.bool(false, "Use Trailing Stop", group="Risk Management")
 trailing_pct = input.float(1.5, "Trailing Stop %", minval=0.1, maxval=10.0, group="Risk Management")
+trailing_offset_mult = input.float(0.5, "Trailing Offset Multiplier", minval=0.1, maxval=1.0, group="Risk Management", 
+                                   tooltip="Multiplier for trail offset (lower = tighter trail, higher = looser trail)")
 
 // ==================== VARIABLES AND ARRAYS ====================
 
@@ -300,9 +302,9 @@ if long_condition
     take_profit = entry_price * (1 + take_profit_pct / 100)
     
     // Calculate trailing stop in ticks (trail_points expects ticks, not price)
-    // Trail offset is set to half of trailing percentage for more conservative trailing
+    // Trail offset controls how far price must move before trailing begins
     trail_ticks = use_trailing ? math.round((entry_price * trailing_pct / 100) / syminfo.mintick) : na
-    trail_offset_ticks = use_trailing ? math.round((entry_price * trailing_pct * 0.5 / 100) / syminfo.mintick) : na
+    trail_offset_ticks = use_trailing ? math.round((entry_price * trailing_pct * trailing_offset_mult / 100) / syminfo.mintick) : na
     
     strategy.entry("Long", strategy.long)
     strategy.exit("Exit Long", "Long", stop=stop_loss, limit=take_profit,
@@ -319,9 +321,9 @@ if short_condition
     take_profit = entry_price * (1 - take_profit_pct / 100)
     
     // Calculate trailing stop in ticks (trail_points expects ticks, not price)
-    // Trail offset is set to half of trailing percentage for more conservative trailing
+    // Trail offset controls how far price must move before trailing begins
     trail_ticks = use_trailing ? math.round((entry_price * trailing_pct / 100) / syminfo.mintick) : na
-    trail_offset_ticks = use_trailing ? math.round((entry_price * trailing_pct * 0.5 / 100) / syminfo.mintick) : na
+    trail_offset_ticks = use_trailing ? math.round((entry_price * trailing_pct * trailing_offset_mult / 100) / syminfo.mintick) : na
     
     strategy.entry("Short", strategy.short)
     strategy.exit("Exit Short", "Short", stop=stop_loss, limit=take_profit,

@@ -87,7 +87,7 @@ cleanup_zones(zone_bars, zone_tops, zone_bottoms) =>
 // Reset daily trade count at start of new day
 reset_daily_count() =>
     current_day = dayofweek
-    if current_day != last_trade_day and last_trade_day != -1
+    if current_day != last_trade_day
         daily_trade_count := 0
     last_trade_day := current_day
 
@@ -297,8 +297,8 @@ if long_condition
     
     strategy.entry("Long", strategy.long)
     strategy.exit("Exit Long", "Long", stop=stop_loss, limit=take_profit,
-                  trail_points=use_trailing ? trailing_pct : na,
-                  trail_offset=use_trailing ? trailing_pct * 0.5 : na)
+                  trail_points=use_trailing ? (entry_price * trailing_pct / 100) : na,
+                  trail_offset=use_trailing ? (entry_price * trailing_pct * 0.5 / 100) : na)
     
     last_trade_bar := bar_index
     daily_trade_count += 1
@@ -312,8 +312,8 @@ if short_condition
     
     strategy.entry("Short", strategy.short)
     strategy.exit("Exit Short", "Short", stop=stop_loss, limit=take_profit,
-                  trail_points=use_trailing ? trailing_pct : na,
-                  trail_offset=use_trailing ? trailing_pct * 0.5 : na)
+                  trail_points=use_trailing ? (entry_price * trailing_pct / 100) : na,
+                  trail_offset=use_trailing ? (entry_price * trailing_pct * 0.5 / 100) : na)
     
     last_trade_bar := bar_index
     daily_trade_count += 1

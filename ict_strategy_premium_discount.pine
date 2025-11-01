@@ -1,0 +1,133 @@
+//@version=5
+strategy("ICT Premium/Discount Strategy", overlay=true, max_boxes_count=30, default_qty_type=strategy.percent_of_equity, default_qty_value=10, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.1)
+
+// ============================================================================
+// ICT PREMIUM/DISCOUNT STRATEGY
+// ============================================================================
+// This strategy focuses on:
+// - Trading from premium zones (upper 50% of range) for shorts
+// - Trading from discount zones (lower 50% of range) for longs
+// - Equilibrium (50% level) as decision point
+// - Order blocks in premium/discount areas
+// ============================================================================
+
+// ==================== INPUTS ====================
+range_lookback = input.int(50, "Range Lookback Period", minval=20, maxval=200, group="Range")
+premium_threshold = input.float(0.65, "Premium Zone Threshold", minval=0.5, maxval=0.8, step=0.05, group="Zones", tooltip="Price above this level is premium")
+discount_threshold = input.float(0.35, "Discount Zone Threshold", minval=0.2, maxval=0.5, step=0.05, group="Zones", tooltip="Price below this level is discount")
+ob_length = input.int(8, "Order Block Lookback", minval=3, maxval=20, group="Order Blocks")
+swing_length = input.int(5, "Swing Length", minval=3, maxval=15, group="Structure")
+trade_cooldown = input.int(5, "Bars Between Trades", minval=1, maxval=30, group="Trade Management")
+max_daily_trades = input.int(5, "Max Daily Trades", minval=1, maxval=15, group="Trade Management")
+stop_loss_pct = input.float(1.5, "Stop Loss %", minval=0.5, maxval=5.0, group="Risk")
+take_profit_pct = input.float(3.0, "Take Profit %", minval=1.0, maxval=10.0, group="Risk")
+
+// ==================== VARIABLES ====================
+var int last_trade_bar = -1000
+var int daily_trade_count = 0
+var int last_trade_day = -1
+
+// ==================== PREMIUM/DISCOUNT CALCULATION ====================
+// Calculate range high and low
+range_high = ta.highest(high, range_lookback)
+range_low = ta.lowest(low, range_lookback)
+range_size = range_high - range_low
+
+// Calculate equilibrium (50% level)
+equilibrium = range_low + (range_size * 0.5)
+
+// Calculate premium and discount levels
+premium_level = range_low + (range_size * premium_threshold)
+discount_level = range_low + (range_size * discount_threshold)
+
+// Determine current zone
+in_premium = close > premium_level
+in_discount = close < discount_level
+in_equilibrium = close >= discount_level and close <= premium_level
+
+// Calculate position in range (0 to 1)
+position_in_range = range_size > 0 ? (close - range_low) / range_size : 0.5
+
+// ==================== ORDER BLOCK DETECTION ====================
+// Bullish OB in discount zone
+bullish_ob = false
+if close[1] < open[1] and close > close[1] and close > open
+    if in_discount[1] or in_discount
+        bullish_ob := true
+
+// Bearish OB in premium zone
+bearish_ob = false
+if close[1] > open[1] and close < close[1] and close < open
+    if in_premium[1] or in_premium
+        bearish_ob := true
+
+// ==================== MARKET STRUCTURE ====================
+swing_high = ta.pivothigh(high, swing_length, swing_length)
+swing_low = ta.pivotlow(low, swing_length, swing_length)
+
+var float last_high = na
+var float last_low = na
+var string structure = "neutral"
+
+if not na(swing_high)
+    if not na(last_high)
+        structure := swing_high > last_high ? "bullish" : structure
+    last_high := swing_high
+
+if not na(swing_low)
+    if not na(last_low)
+        structure := swing_low < last_low ? "bearish" : structure
+    last_low := swing_low
+
+// ==================== DAILY RESET ====================
+current_day = dayofweek
+if last_trade_day == -1
+    last_trade_day := current_day
+else if current_day != last_trade_day
+    daily_trade_count := 0
+    last_trade_day := current_day
+
+// ==================== TRADE LOGIC ====================
+can_trade = (bar_index - last_trade_bar) >= trade_cooldown and daily_trade_count < max_daily_trades and strategy.position_size == 0
+
+// Additional filters
+bullish_candle = close > open
+bearish_candle = close < open
+strong_bullish = close > open and (close - open) > (high - low) * 0.6
+strong_bearish = close < open and (open - close) > (high - low) * 0.6
+
+// Long: Discount zone + bullish OB + bullish structure + strong bullish candle
+long_condition = can_trade and in_discount and bullish_ob and structure == "bullish" and strong_bullish
+
+// Short: Premium zone + bearish OB + bearish structure + strong bearish candle
+short_condition = can_trade and in_premium and bearish_ob and structure == "bearish" and strong_bearish
+
+if long_condition
+    stop_loss = close * (1 - stop_loss_pct / 100)
+    take_profit = close * (1 + take_profit_pct / 100)
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Exit Long", "Long", stop=stop_loss, limit=take_profit)
+    last_trade_bar := bar_index
+    daily_trade_count += 1
+
+if short_condition
+    stop_loss = close * (1 + stop_loss_pct / 100)
+    take_profit = close * (1 - take_profit_pct / 100)
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Exit Short", "Short", stop=stop_loss, limit=take_profit)
+    last_trade_bar := bar_index
+    daily_trade_count += 1
+
+// ==================== VISUALIZATION ====================
+plotshape(long_condition, "Long", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(short_condition, "Short", shape.triangledown, location.abovebar, color.red, size=size.small)
+
+// Plot range levels
+plot(range_high, "Range High", color.new(color.gray, 50), 1, plot.style_line)
+plot(range_low, "Range Low", color.new(color.gray, 50), 1, plot.style_line)
+plot(equilibrium, "Equilibrium", color.new(color.yellow, 0), 2, plot.style_line)
+plot(premium_level, "Premium Level", color.new(color.red, 70), 1, plot.style_stepline)
+plot(discount_level, "Discount Level", color.new(color.green, 70), 1, plot.style_stepline)
+
+// Background coloring
+bgcolor(in_premium ? color.new(color.red, 95) : in_discount ? color.new(color.green, 95) : na)

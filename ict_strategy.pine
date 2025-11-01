@@ -1,0 +1,362 @@
+//@version=5
+strategy("ICT Strategy Tester", overlay=true, max_boxes_count=50, max_lines_count=50, default_qty_type=strategy.percent_of_equity, default_qty_value=10, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.1)
+
+// ============================================================================
+// ICT CONCEPTS STRATEGY TESTER
+// ============================================================================
+// This strategy implements ICT (Inner Circle Trader) trading concepts with:
+// - Order Block and FVG based entries
+// - Trade limiting: max 1 trade per cooldown period
+// - Daily trade limit: max 5 trades per day
+// - Proper entry/exit rules with risk management
+// ============================================================================
+
+// ==================== INPUT PARAMETERS ====================
+
+// Order Block Settings
+ob_length = input.int(10, "Order Block Lookback", minval=5, maxval=50, group="Order Blocks")
+
+// Fair Value Gap Settings
+fvg_threshold = input.float(0.0, "FVG Min Size (% of price)", minval=0.0, maxval=5.0, group="Fair Value Gaps")
+
+// Market Structure Settings
+swing_length = input.int(5, "Swing Detection Length", minval=3, maxval=20, group="Market Structure")
+
+// Trade Management
+trade_cooldown = input.int(5, "Minimum Bars Between Trades", minval=1, maxval=50, group="Trade Management", tooltip="Prevent consecutive trades within this period")
+max_daily_trades = input.int(5, "Max Trades Per Day", minval=1, maxval=20, group="Trade Management")
+
+// Risk Management
+stop_loss_pct = input.float(2.0, "Stop Loss %", minval=0.1, maxval=10.0, group="Risk Management")
+take_profit_pct = input.float(4.0, "Take Profit %", minval=0.1, maxval=20.0, group="Risk Management")
+use_trailing = input.bool(false, "Use Trailing Stop", group="Risk Management")
+trailing_pct = input.float(1.5, "Trailing Stop %", minval=0.1, maxval=10.0, group="Risk Management")
+trailing_offset_mult = input.float(0.5, "Trailing Offset Multiplier", minval=0.1, maxval=1.0, group="Risk Management", tooltip="Multiplier for trail offset (lower = tighter trail, higher = looser trail)")
+
+// ==================== VARIABLES AND ARRAYS ====================
+
+// Track zones to prevent overlaps
+var array<float> bullish_ob_tops = array.new<float>()
+var array<float> bullish_ob_bottoms = array.new<float>()
+var array<int> bullish_ob_bars = array.new<int>()
+
+var array<float> bearish_ob_tops = array.new<float>()
+var array<float> bearish_ob_bottoms = array.new<float>()
+var array<int> bearish_ob_bars = array.new<int>()
+
+var array<float> fvg_tops = array.new<float>()
+var array<float> fvg_bottoms = array.new<float>()
+var array<int> fvg_bars = array.new<int>()
+
+// Trade tracking
+var int last_trade_bar = -1000
+var int daily_trade_count = 0
+var int last_trade_day = -1
+
+// Entry price tracking for stop loss and take profit
+var float entry_price = 0.0
+var bool in_long_position = false
+var bool in_short_position = false
+
+// ==================== HELPER FUNCTIONS ====================
+
+// Check if price range overlaps with existing zones
+check_overlap(top, bottom, zone_tops, zone_bottoms) =>
+    bool has_overlap = false
+    if array.size(zone_tops) > 0
+        for i = 0 to array.size(zone_tops) - 1
+            existing_top = array.get(zone_tops, i)
+            existing_bottom = array.get(zone_bottoms, i)
+            // Check if ranges overlap
+            if not (bottom > existing_top or top < existing_bottom)
+                has_overlap := true
+                break
+    has_overlap
+
+// Remove old zones (older than 100 bars)
+cleanup_zones(zone_bars, zone_tops, zone_bottoms) =>
+    if array.size(zone_bars) > 0
+        for i = array.size(zone_bars) - 1 to 0
+            if bar_index - array.get(zone_bars, i) > 100
+                array.remove(zone_bars, i)
+                array.remove(zone_tops, i)
+                array.remove(zone_bottoms, i)
+
+// Check if we can take a new trade
+can_trade() =>
+    cooldown_ok = (bar_index - last_trade_bar) >= trade_cooldown
+    daily_limit_ok = daily_trade_count < max_daily_trades
+    not_in_position = strategy.position_size == 0
+    cooldown_ok and daily_limit_ok and not_in_position
+
+// ==================== ORDER BLOCK DETECTION ====================
+
+// Detect Bullish Order Block (last down candle before strong up move)
+detect_bullish_ob() =>
+    bool is_ob = false
+    float ob_top = na
+    float ob_bottom = na
+    
+    if bar_index >= ob_length
+        // Look for a down candle followed by bullish momentum
+        if close[1] < open[1]  // Previous candle is bearish
+            // Check if subsequent candles show bullish momentum
+            bullish_momentum = close > close[1] and close > open
+            
+            if bullish_momentum
+                // The bearish candle before the move is the order block
+                ob_top := math.max(open[1], close[1])
+                ob_bottom := math.min(open[1], close[1])
+                
+                // Check for overlap with existing bullish OBs
+                if not check_overlap(ob_top, ob_bottom, bullish_ob_tops, bullish_ob_bottoms)
+                    is_ob := true
+    
+    [is_ob, ob_top, ob_bottom]
+
+// Detect Bearish Order Block (last up candle before strong down move)
+detect_bearish_ob() =>
+    bool is_ob = false
+    float ob_top = na
+    float ob_bottom = na
+    
+    if bar_index >= ob_length
+        // Look for an up candle followed by bearish momentum
+        if close[1] > open[1]  // Previous candle is bullish
+            // Check if subsequent candles show bearish momentum
+            bearish_momentum = close < close[1] and close < open
+            
+            if bearish_momentum
+                // The bullish candle before the move is the order block
+                ob_top := math.max(open[1], close[1])
+                ob_bottom := math.min(open[1], close[1])
+                
+                // Check for overlap with existing bearish OBs
+                if not check_overlap(ob_top, ob_bottom, bearish_ob_tops, bearish_ob_bottoms)
+                    is_ob := true
+    
+    [is_ob, ob_top, ob_bottom]
+
+// ==================== FAIR VALUE GAP DETECTION ====================
+
+// Detect Bullish Fair Value Gap (gap up)
+detect_bullish_fvg() =>
+    bool is_fvg = false
+    float fvg_top = na
+    float fvg_bottom = na
+    
+    if bar_index >= 2
+        // Bullish FVG: low[0] > high[2] (current low above previous high with gap)
+        gap = low - high[2]
+        gap_percent = (gap / close) * 100
+        
+        if gap > 0 and gap_percent >= fvg_threshold
+            fvg_top := low
+            fvg_bottom := high[2]
+            
+            // Check for overlap with existing FVGs
+            if not check_overlap(fvg_top, fvg_bottom, fvg_tops, fvg_bottoms)
+                is_fvg := true
+    
+    [is_fvg, fvg_top, fvg_bottom]
+
+// Detect Bearish Fair Value Gap (gap down)
+detect_bearish_fvg() =>
+    bool is_fvg = false
+    float fvg_top = na
+    float fvg_bottom = na
+    
+    if bar_index >= 2
+        // Bearish FVG: high[0] < low[2] (current high below previous low with gap)
+        gap = low[2] - high
+        gap_percent = (gap / close) * 100
+        
+        if gap > 0 and gap_percent >= fvg_threshold
+            fvg_top := low[2]
+            fvg_bottom := high
+            
+            // Check for overlap with existing FVGs
+            if not check_overlap(fvg_top, fvg_bottom, fvg_tops, fvg_bottoms)
+                is_fvg := true
+    
+    [is_fvg, fvg_top, fvg_bottom]
+
+// ==================== MARKET STRUCTURE ====================
+
+// Detect swing highs and lows
+swing_high = ta.pivothigh(high, swing_length, swing_length)
+swing_low = ta.pivotlow(low, swing_length, swing_length)
+
+// Track market structure
+var float last_swing_high = na
+var float last_swing_low = na
+var string market_structure = "neutral"  // "bullish", "bearish", "neutral"
+
+if not na(swing_high)
+    if not na(last_swing_high)
+        // Break of Structure (BOS) - Higher High in uptrend
+        if swing_high > last_swing_high and market_structure != "bullish"
+            market_structure := "bullish"
+    last_swing_high := swing_high
+
+if not na(swing_low)
+    if not na(last_swing_low)
+        // Break of Structure (BOS) - Lower Low in downtrend
+        if swing_low < last_swing_low and market_structure != "bearish"
+            market_structure := "bearish"
+    last_swing_low := swing_low
+
+// ==================== MAIN LOGIC ====================
+
+// Reset daily trade count at start of new day (inline logic to avoid function scope issues)
+current_day = dayofweek
+if last_trade_day == -1
+    // First initialization - set the day but don't reset counter
+    last_trade_day := current_day
+else if current_day != last_trade_day
+    // New day detected, reset counter
+    daily_trade_count := 0
+    last_trade_day := current_day
+
+// Cleanup old zones
+cleanup_zones(bullish_ob_bars, bullish_ob_tops, bullish_ob_bottoms)
+cleanup_zones(bearish_ob_bars, bearish_ob_tops, bearish_ob_bottoms)
+cleanup_zones(fvg_bars, fvg_tops, fvg_bottoms)
+
+// Detect Order Blocks
+[is_bull_ob, bull_ob_top, bull_ob_bottom] = detect_bullish_ob()
+[is_bear_ob, bear_ob_top, bear_ob_bottom] = detect_bearish_ob()
+
+if is_bull_ob
+    array.push(bullish_ob_tops, bull_ob_top)
+    array.push(bullish_ob_bottoms, bull_ob_bottom)
+    array.push(bullish_ob_bars, bar_index)
+
+if is_bear_ob
+    array.push(bearish_ob_tops, bear_ob_top)
+    array.push(bearish_ob_bottoms, bear_ob_bottom)
+    array.push(bearish_ob_bars, bar_index)
+
+// Detect Fair Value Gaps
+[is_bull_fvg, bull_fvg_top, bull_fvg_bottom] = detect_bullish_fvg()
+[is_bear_fvg, bear_fvg_top, bear_fvg_bottom] = detect_bearish_fvg()
+
+if is_bull_fvg
+    array.push(fvg_tops, bull_fvg_top)
+    array.push(fvg_bottoms, bull_fvg_bottom)
+    array.push(fvg_bars, bar_index)
+
+if is_bear_fvg
+    array.push(fvg_tops, bear_fvg_top)
+    array.push(fvg_bottoms, bear_fvg_bottom)
+    array.push(fvg_bars, bar_index)
+
+// ==================== ENTRY LOGIC ====================
+
+// Long entry conditions
+long_condition = false
+if can_trade() and market_structure == "bullish"
+    // Check if price is at a bullish order block
+    if array.size(bullish_ob_bottoms) > 0
+        for i = 0 to array.size(bullish_ob_bottoms) - 1
+            ob_top = array.get(bullish_ob_tops, i)
+            ob_bottom = array.get(bullish_ob_bottoms, i)
+            if low <= ob_top and low >= ob_bottom
+                long_condition := true
+                break
+
+// Short entry conditions
+short_condition = false
+if can_trade() and market_structure == "bearish"
+    // Check if price is at a bearish order block
+    if array.size(bearish_ob_bottoms) > 0
+        for i = 0 to array.size(bearish_ob_bottoms) - 1
+            ob_top = array.get(bearish_ob_tops, i)
+            ob_bottom = array.get(bearish_ob_bottoms, i)
+            if high >= ob_bottom and high <= ob_top
+                short_condition := true
+                break
+
+// Ensure no simultaneous long and short signals
+if long_condition and short_condition
+    // Shouldn't happen due to market structure check, but extra safety
+    if market_structure == "bullish"
+        short_condition := false
+    else
+        long_condition := false
+
+// ==================== EXECUTE TRADES ====================
+
+// Enter Long
+if long_condition
+    entry_price := close
+    stop_loss = entry_price * (1 - stop_loss_pct / 100)
+    take_profit = entry_price * (1 + take_profit_pct / 100)
+    
+    // Calculate trailing stop in ticks (trail_points expects ticks, not price)
+    // Trail offset controls how far price must move before trailing begins
+    trail_ticks = use_trailing ? math.round((entry_price * trailing_pct / 100) / syminfo.mintick) : na
+    trail_offset_ticks = use_trailing ? math.round((entry_price * trailing_pct * trailing_offset_mult / 100) / syminfo.mintick) : na
+    
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Exit Long", "Long", stop=stop_loss, limit=take_profit, trail_points=trail_ticks, trail_offset=trail_offset_ticks)
+    
+    last_trade_bar := bar_index
+    daily_trade_count += 1
+    in_long_position := true
+
+// Enter Short
+if short_condition
+    entry_price := close
+    stop_loss = entry_price * (1 + stop_loss_pct / 100)
+    take_profit = entry_price * (1 - take_profit_pct / 100)
+    
+    // Calculate trailing stop in ticks (trail_points expects ticks, not price)
+    // Trail offset controls how far price must move before trailing begins
+    trail_ticks = use_trailing ? math.round((entry_price * trailing_pct / 100) / syminfo.mintick) : na
+    trail_offset_ticks = use_trailing ? math.round((entry_price * trailing_pct * trailing_offset_mult / 100) / syminfo.mintick) : na
+    
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Exit Short", "Short", stop=stop_loss, limit=take_profit, trail_points=trail_ticks, trail_offset=trail_offset_ticks)
+    
+    last_trade_bar := bar_index
+    daily_trade_count += 1
+    in_short_position := true
+
+// Update position status
+if strategy.position_size == 0
+    in_long_position := false
+    in_short_position := false
+
+// ==================== VISUALIZATION ====================
+
+// Plot entry signals
+plotshape(long_condition, "Long Entry", shape.labelup, location.belowbar, 
+          color.new(color.green, 0), text="LONG", textcolor=color.white, size=size.small)
+plotshape(short_condition, "Short Entry", shape.labeldown, location.abovebar, 
+          color.new(color.red, 0), text="SHORT", textcolor=color.white, size=size.small)
+
+// Plot market structure
+bgcolor(market_structure == "bullish" ? color.new(color.green, 95) : 
+        market_structure == "bearish" ? color.new(color.red, 95) : na)
+
+// ==================== PERFORMANCE METRICS ====================
+
+// Display daily trade count
+var table performance_table = table.new(position.top_right, 2, 4, bgcolor=color.new(color.gray, 80), border_width=1)
+
+if barstate.islast
+    table.cell(performance_table, 0, 0, "Metric", text_color=color.white, text_size=size.small)
+    table.cell(performance_table, 1, 0, "Value", text_color=color.white, text_size=size.small)
+    
+    table.cell(performance_table, 0, 1, "Today's Trades", text_color=color.white, text_size=size.small)
+    table.cell(performance_table, 1, 1, str.tostring(daily_trade_count), text_color=color.yellow, text_size=size.small)
+    
+    table.cell(performance_table, 0, 2, "Max Daily", text_color=color.white, text_size=size.small)
+    table.cell(performance_table, 1, 2, str.tostring(max_daily_trades), text_color=color.white, text_size=size.small)
+    
+    table.cell(performance_table, 0, 3, "Structure", text_color=color.white, text_size=size.small)
+    table.cell(performance_table, 1, 3, market_structure, 
+              text_color=market_structure == "bullish" ? color.green : 
+                        market_structure == "bearish" ? color.red : color.white, 
+              text_size=size.small)

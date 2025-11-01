@@ -1,0 +1,133 @@
+//@version=5
+strategy("ICT Break of Structure", overlay=true, max_boxes_count=30, default_qty_type=strategy.percent_of_equity, default_qty_value=10, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.1)
+
+// ============================================================================
+// ICT BREAK OF STRUCTURE (BOS) STRATEGY
+// ============================================================================
+// This strategy focuses on:
+// - Clear breaks of market structure
+// - Change of Character (CHoCH)
+// - Order blocks after BOS
+// - Strong directional moves
+// ============================================================================
+
+// ==================== INPUTS ====================
+swing_length = input.int(7, "Swing Detection Length", minval=3, maxval=20, group="Structure")
+bos_strength = input.int(3, "BOS Confirmation Bars", minval=1, maxval=10, group="Structure", tooltip="Bars to confirm break")
+ob_lookback = input.int(5, "Order Block Lookback", minval=3, maxval=15, group="Order Blocks")
+trade_cooldown = input.int(5, "Bars Between Trades", minval=1, maxval=30, group="Trade Management")
+max_daily_trades = input.int(5, "Max Daily Trades", minval=1, maxval=15, group="Trade Management")
+stop_loss_pct = input.float(2.0, "Stop Loss %", minval=0.5, maxval=5.0, group="Risk")
+take_profit_pct = input.float(4.0, "Take Profit %", minval=1.0, maxval=15.0, group="Risk")
+risk_reward = input.float(2.0, "Risk:Reward Ratio", minval=1.0, maxval=5.0, group="Risk")
+
+// ==================== VARIABLES ====================
+var int last_trade_bar = -1000
+var int daily_trade_count = 0
+var int last_trade_day = -1
+var float last_swing_high = na
+var float last_swing_low = na
+var bool bullish_bos = false
+var bool bearish_bos = false
+
+// ==================== SWING DETECTION ====================
+swing_high = ta.pivothigh(high, swing_length, swing_length)
+swing_low = ta.pivotlow(low, swing_length, swing_length)
+
+// ==================== BREAK OF STRUCTURE DETECTION ====================
+// Bullish BOS: Price breaks above previous swing high
+if not na(swing_high)
+    last_swing_high := swing_high
+
+if not na(swing_low)
+    last_swing_low := swing_low
+
+// Check for bullish BOS (close above previous high with confirmation)
+if not na(last_swing_high) and close > last_swing_high
+    confirm_count = 0
+    for i = 0 to bos_strength - 1
+        if close[i] > last_swing_high
+            confirm_count := confirm_count + 1
+    if confirm_count >= bos_strength
+        bullish_bos := true
+    else
+        bullish_bos := false
+else
+    bullish_bos := false
+
+// Check for bearish BOS (close below previous low with confirmation)
+if not na(last_swing_low) and close < last_swing_low
+    confirm_count = 0
+    for i = 0 to bos_strength - 1
+        if close[i] < last_swing_low
+            confirm_count := confirm_count + 1
+    if confirm_count >= bos_strength
+        bearish_bos := true
+    else
+        bearish_bos := false
+else
+    bearish_bos := false
+
+// ==================== ORDER BLOCK DETECTION ====================
+// Find order block after BOS
+bullish_ob_detected = false
+bearish_ob_detected = false
+
+// Bullish OB: Last bearish candle before BOS
+if bullish_bos
+    for i = 1 to ob_lookback
+        if close[i] < open[i]
+            bullish_ob_detected := true
+            break
+
+// Bearish OB: Last bullish candle before BOS
+if bearish_bos
+    for i = 1 to ob_lookback
+        if close[i] > open[i]
+            bearish_ob_detected := true
+            break
+
+// ==================== DAILY RESET ====================
+current_day = dayofweek
+if last_trade_day == -1
+    last_trade_day := current_day
+else if current_day != last_trade_day
+    daily_trade_count := 0
+    last_trade_day := current_day
+
+// ==================== TRADE LOGIC ====================
+can_trade = (bar_index - last_trade_bar) >= trade_cooldown and daily_trade_count < max_daily_trades and strategy.position_size == 0
+
+// Additional momentum filter
+bullish_momentum = close > open and close > close[1]
+bearish_momentum = close < open and close < close[1]
+
+// Long: Bullish BOS + bullish OB + momentum
+long_signal = can_trade and bullish_bos and bullish_ob_detected and bullish_momentum
+
+// Short: Bearish BOS + bearish OB + momentum
+short_signal = can_trade and bearish_bos and bearish_ob_detected and bearish_momentum
+
+if long_signal
+    stop_loss = close * (1 - stop_loss_pct / 100)
+    profit_distance = close - stop_loss
+    take_profit = close + (profit_distance * risk_reward)
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Exit Long", "Long", stop=stop_loss, limit=take_profit)
+    last_trade_bar := bar_index
+    daily_trade_count += 1
+
+if short_signal
+    stop_loss = close * (1 + stop_loss_pct / 100)
+    profit_distance = stop_loss - close
+    take_profit = close - (profit_distance * risk_reward)
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Exit Short", "Short", stop=stop_loss, limit=take_profit)
+    last_trade_bar := bar_index
+    daily_trade_count += 1
+
+// ==================== VISUALIZATION ====================
+plotshape(long_signal, "Long", shape.triangleup, location.belowbar, color.green, size=size.normal)
+plotshape(short_signal, "Short", shape.triangledown, location.abovebar, color.red, size=size.normal)
+plotshape(bullish_bos and not bullish_bos[1], "Bullish BOS", shape.circle, location.belowbar, color.new(color.green, 50), size=size.tiny)
+plotshape(bearish_bos and not bearish_bos[1], "Bearish BOS", shape.circle, location.abovebar, color.new(color.red, 50), size=size.tiny)

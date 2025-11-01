@@ -201,15 +201,23 @@ generate_buy_signal() =>
     
     // Conditions for buy signal:
     // 1. Bullish market structure
-    // 2. Price near bullish order block or filled bearish FVG
+    // 2. Price near bullish order block
     // 3. Cooldown period elapsed (minimum bars since last signal)
     // 4. No conflicting sell signal on same bar
+    // 5. Additional filters: Price must be in lower part of recent range and showing bullish momentum
     
     cooldown_ok = (bar_index - last_signal_bar) >= signal_cooldown
     // No conflict means: either last signal was also a buy (no conflict), or we're on a different bar
     no_conflict = last_signal_type != "sell" or (bar_index != last_signal_bar)
     
-    if market_structure == "bullish" and cooldown_ok and no_conflict
+    // Additional quality filters
+    bullish_candle = close > open  // Current candle is bullish
+    recent_high = ta.highest(high, 20)
+    recent_low = ta.lowest(low, 20)
+    price_range = recent_high - recent_low
+    in_lower_half = price_range > 0 and (close - recent_low) < (price_range * 0.6)  // Price in lower 60% of range
+    
+    if market_structure == "bullish" and cooldown_ok and no_conflict and bullish_candle and in_lower_half
         // Check if price is at a bullish order block
         near_bull_ob = false
         if array.size(bullish_ob_bottoms) > 0
@@ -231,15 +239,23 @@ generate_sell_signal() =>
     
     // Conditions for sell signal:
     // 1. Bearish market structure
-    // 2. Price near bearish order block or filled bullish FVG
+    // 2. Price near bearish order block
     // 3. Cooldown period elapsed (minimum bars since last signal)
     // 4. No conflicting buy signal on same bar
+    // 5. Additional filters: Price must be in upper part of recent range and showing bearish momentum
     
     cooldown_ok = (bar_index - last_signal_bar) >= signal_cooldown
     // No conflict means: either last signal was also a sell (no conflict), or we're on a different bar
     no_conflict = last_signal_type != "buy" or (bar_index != last_signal_bar)
     
-    if market_structure == "bearish" and cooldown_ok and no_conflict
+    // Additional quality filters
+    bearish_candle = close < open  // Current candle is bearish
+    recent_high = ta.highest(high, 20)
+    recent_low = ta.lowest(low, 20)
+    price_range = recent_high - recent_low
+    in_upper_half = price_range > 0 and (recent_high - close) < (price_range * 0.6)  // Price in upper 60% of range
+    
+    if market_structure == "bearish" and cooldown_ok and no_conflict and bearish_candle and in_upper_half
         // Check if price is at a bearish order block
         near_bear_ob = false
         if array.size(bearish_ob_bottoms) > 0
@@ -323,11 +339,9 @@ if sell_signal
     last_signal_bar := bar_index
     last_signal_type := "sell"
 
-// Plot signals
-plotshape(show_signals and buy_signal, "Buy Signal", shape.labelup, location.belowbar, 
-          color.new(color.green, 0), text="BUY", textcolor=color.white, size=size.small)
-plotshape(show_signals and sell_signal, "Sell Signal", shape.labeldown, location.abovebar, 
-          color.new(color.red, 0), text="SELL", textcolor=color.white, size=size.small)
+// Plot signals - green up triangle for buy, red down triangle for sell
+plotshape(show_signals and buy_signal, "Buy Signal", shape.triangleup, location.belowbar, color.new(color.green, 0), size=size.small)
+plotshape(show_signals and sell_signal, "Sell Signal", shape.triangledown, location.abovebar, color.new(color.red, 0), size=size.small)
 
 // Plot market structure shifts
 plotshape(show_structure and market_structure == "bullish" and market_structure[1] != "bullish", 

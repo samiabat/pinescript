@@ -1,7 +1,5 @@
 //@version=5
-strategy("ICT Strategy Tester", overlay=true, max_boxes_count=50, max_lines_count=50, 
-         default_qty_type=strategy.percent_of_equity, default_qty_value=10, 
-         initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.1)
+strategy("ICT Strategy Tester", overlay=true, max_boxes_count=50, max_lines_count=50, default_qty_type=strategy.percent_of_equity, default_qty_value=10, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.1)
 
 // ============================================================================
 // ICT CONCEPTS STRATEGY TESTER

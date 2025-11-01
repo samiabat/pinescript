@@ -1,0 +1,110 @@
+//@version=5
+strategy("ICT Kill Zone Strategy", overlay=true, max_boxes_count=30, default_qty_type=strategy.percent_of_equity, default_qty_value=10, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.1)
+
+// ============================================================================
+// ICT KILL ZONE STRATEGY
+// ============================================================================
+// This strategy focuses on:
+// - Trading during specific high-probability time windows (Kill Zones)
+// - London Kill Zone: 02:00-05:00 EST (07:00-10:00 UTC)
+// - New York Kill Zone: 07:00-10:00 EST (12:00-15:00 UTC)
+// - Asian Kill Zone: 20:00-00:00 EST (01:00-05:00 UTC)
+// - Order blocks formed during kill zones
+// ============================================================================
+
+// ==================== INPUTS ====================
+use_london_kz = input.bool(true, "Use London Kill Zone", group="Kill Zones")
+use_newyork_kz = input.bool(true, "Use New York Kill Zone", group="Kill Zones")
+use_asian_kz = input.bool(false, "Use Asian Kill Zone", group="Kill Zones")
+ob_length = input.int(10, "Order Block Lookback", minval=5, maxval=30, group="Order Blocks")
+swing_length = input.int(5, "Swing Length", minval=3, maxval=15, group="Structure")
+trade_cooldown = input.int(3, "Bars Between Trades", minval=1, maxval=20, group="Trade Management")
+max_daily_trades = input.int(4, "Max Daily Trades", minval=1, maxval=10, group="Trade Management")
+stop_loss_pct = input.float(1.8, "Stop Loss %", minval=0.5, maxval=5.0, group="Risk")
+take_profit_pct = input.float(3.5, "Take Profit %", minval=1.0, maxval=10.0, group="Risk")
+
+// ==================== VARIABLES ====================
+var int last_trade_bar = -1000
+var int daily_trade_count = 0
+var int last_trade_day = -1
+
+// ==================== KILL ZONE DETECTION ====================
+// Get current hour in UTC
+current_hour = hour
+
+// Kill Zone detection (UTC time)
+london_kz = use_london_kz and (current_hour >= 7 and current_hour < 10)
+newyork_kz = use_newyork_kz and (current_hour >= 12 and current_hour < 15)
+asian_kz = use_asian_kz and (current_hour >= 1 and current_hour < 5)
+
+in_kill_zone = london_kz or newyork_kz or asian_kz
+
+// ==================== ORDER BLOCK DETECTION ====================
+// Bullish OB: Last bearish candle before bullish move in kill zone
+bullish_ob = false
+if close[1] < open[1] and close > close[1] and close > open
+    if in_kill_zone[1] or in_kill_zone
+        bullish_ob := true
+
+// Bearish OB: Last bullish candle before bearish move in kill zone
+bearish_ob = false
+if close[1] > open[1] and close < close[1] and close < open
+    if in_kill_zone[1] or in_kill_zone
+        bearish_ob := true
+
+// ==================== MARKET STRUCTURE ====================
+swing_high = ta.pivothigh(high, swing_length, swing_length)
+swing_low = ta.pivotlow(low, swing_length, swing_length)
+
+var float prev_high = na
+var float prev_low = na
+var string trend = "neutral"
+
+if not na(swing_high)
+    if not na(prev_high)
+        trend := swing_high > prev_high ? "bullish" : trend
+    prev_high := swing_high
+
+if not na(swing_low)
+    if not na(prev_low)
+        trend := swing_low < prev_low ? "bearish" : trend
+    prev_low := swing_low
+
+// ==================== DAILY RESET ====================
+current_day = dayofweek
+if last_trade_day == -1
+    last_trade_day := current_day
+else if current_day != last_trade_day
+    daily_trade_count := 0
+    last_trade_day := current_day
+
+// ==================== TRADE LOGIC ====================
+can_trade = (bar_index - last_trade_bar) >= trade_cooldown and daily_trade_count < max_daily_trades and strategy.position_size == 0
+
+// Long: In kill zone + bullish OB + bullish trend
+long_condition = can_trade and in_kill_zone and bullish_ob and trend == "bullish"
+
+// Short: In kill zone + bearish OB + bearish trend
+short_condition = can_trade and in_kill_zone and bearish_ob and trend == "bearish"
+
+if long_condition
+    stop_loss = close * (1 - stop_loss_pct / 100)
+    take_profit = close * (1 + take_profit_pct / 100)
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Exit Long", "Long", stop=stop_loss, limit=take_profit)
+    last_trade_bar := bar_index
+    daily_trade_count += 1
+
+if short_condition
+    stop_loss = close * (1 + stop_loss_pct / 100)
+    take_profit = close * (1 - take_profit_pct / 100)
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Exit Short", "Short", stop=stop_loss, limit=take_profit)
+    last_trade_bar := bar_index
+    daily_trade_count += 1
+
+// ==================== VISUALIZATION ====================
+plotshape(long_condition, "Long", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(short_condition, "Short", shape.triangledown, location.abovebar, color.red, size=size.small)
+bgcolor(in_kill_zone ? color.new(color.yellow, 90) : na, title="Kill Zone")
+bgcolor(trend == "bullish" ? color.new(color.green, 95) : trend == "bearish" ? color.new(color.red, 95) : na)

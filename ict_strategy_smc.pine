@@ -1,0 +1,103 @@
+//@version=5
+strategy("ICT Smart Money Concepts", overlay=true, max_boxes_count=50, default_qty_type=strategy.percent_of_equity, default_qty_value=10, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.1)
+
+// ============================================================================
+// ICT SMART MONEY CONCEPTS STRATEGY
+// ============================================================================
+// This strategy focuses on:
+// - Liquidity sweeps (stop hunts)
+// - Inducement patterns
+// - Order blocks after liquidity grabs
+// - Market structure manipulation
+// ============================================================================
+
+// ==================== INPUTS ====================
+lookback = input.int(20, "Liquidity Lookback", minval=10, maxval=50, group="Liquidity")
+ob_length = input.int(8, "Order Block Lookback", minval=3, maxval=20, group="Order Blocks")
+swing_length = input.int(5, "Swing Length", minval=3, maxval=15, group="Structure")
+trade_cooldown = input.int(5, "Bars Between Trades", minval=1, maxval=30, group="Trade Management")
+max_daily_trades = input.int(5, "Max Daily Trades", minval=1, maxval=15, group="Trade Management")
+stop_loss_pct = input.float(1.5, "Stop Loss %", minval=0.5, maxval=5.0, group="Risk")
+take_profit_pct = input.float(3.0, "Take Profit %", minval=1.0, maxval=10.0, group="Risk")
+
+// ==================== VARIABLES ====================
+var int last_trade_bar = -1000
+var int daily_trade_count = 0
+var int last_trade_day = -1
+var float last_high = na
+var float last_low = na
+
+// ==================== LIQUIDITY DETECTION ====================
+// Detect liquidity above/below recent highs/lows
+recent_high = ta.highest(high, lookback)
+recent_low = ta.lowest(low, lookback)
+
+// Liquidity sweep: price breaks high/low then reverses
+bullish_sweep = high > recent_high[1] and close < open and close < recent_high[1]
+bearish_sweep = low < recent_low[1] and close > open and close > recent_low[1]
+
+// ==================== ORDER BLOCK DETECTION ====================
+// Order block after liquidity sweep
+bullish_ob = false
+bearish_ob = false
+
+if bullish_sweep[1] and close > open
+    bullish_ob := true
+
+if bearish_sweep[1] and close < open
+    bearish_ob := true
+
+// ==================== MARKET STRUCTURE ====================
+swing_high = ta.pivothigh(high, swing_length, swing_length)
+swing_low = ta.pivotlow(low, swing_length, swing_length)
+
+var string structure = "neutral"
+if not na(swing_high) and not na(last_high)
+    structure := swing_high > last_high ? "bullish" : structure
+    last_high := swing_high
+else if not na(swing_high)
+    last_high := swing_high
+
+if not na(swing_low) and not na(last_low)
+    structure := swing_low < last_low ? "bearish" : structure
+    last_low := swing_low
+else if not na(swing_low)
+    last_low := swing_low
+
+// ==================== DAILY RESET ====================
+current_day = dayofweek
+if last_trade_day == -1
+    last_trade_day := current_day
+else if current_day != last_trade_day
+    daily_trade_count := 0
+    last_trade_day := current_day
+
+// ==================== TRADE LOGIC ====================
+can_trade = (bar_index - last_trade_bar) >= trade_cooldown and daily_trade_count < max_daily_trades and strategy.position_size == 0
+
+// Long: Bullish liquidity sweep + bullish OB + bullish structure
+long_signal = can_trade and bullish_ob and structure == "bullish" and close > open
+
+// Short: Bearish liquidity sweep + bearish OB + bearish structure
+short_signal = can_trade and bearish_ob and structure == "bearish" and close < open
+
+if long_signal
+    stop_loss = close * (1 - stop_loss_pct / 100)
+    take_profit = close * (1 + take_profit_pct / 100)
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Exit Long", "Long", stop=stop_loss, limit=take_profit)
+    last_trade_bar := bar_index
+    daily_trade_count += 1
+
+if short_signal
+    stop_loss = close * (1 + stop_loss_pct / 100)
+    take_profit = close * (1 - take_profit_pct / 100)
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Exit Short", "Short", stop=stop_loss, limit=take_profit)
+    last_trade_bar := bar_index
+    daily_trade_count += 1
+
+// ==================== VISUALIZATION ====================
+plotshape(long_signal, "Long", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(short_signal, "Short", shape.triangledown, location.abovebar, color.red, size=size.small)
+bgcolor(structure == "bullish" ? color.new(color.green, 95) : structure == "bearish" ? color.new(color.red, 95) : na)

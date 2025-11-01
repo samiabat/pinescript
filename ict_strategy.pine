@@ -343,9 +343,7 @@ bgcolor(market_structure == "bullish" ? color.new(color.green, 95) :
 // ==================== PERFORMANCE METRICS ====================
 
 // Display daily trade count
-var table performance_table = table.new(position.top_right, 2, 4, 
-                                       bgcolor=color.new(color.gray, 80), 
-                                       border_width=1)
+var table performance_table = table.new(position.top_right, 2, 4, bgcolor=color.new(color.gray, 80), border_width=1)
 
 if barstate.islast
     table.cell(performance_table, 0, 0, "Metric", text_color=color.white, text_size=size.small)

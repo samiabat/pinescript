@@ -286,17 +286,13 @@ if is_bull_ob and show_ob
     array.push(bullish_ob_tops, bull_ob_top)
     array.push(bullish_ob_bottoms, bull_ob_bottom)
     array.push(bullish_ob_bars, bar_index)
-    box.new(bar_index - 1, bull_ob_top, bar_index + 20, bull_ob_bottom, 
-             border_color=color.green, bgcolor=bullish_ob_color, 
-             text="Bull OB", text_color=color.green, text_size=size.tiny)
+    box.new(bar_index - 1, bull_ob_top, bar_index + 20, bull_ob_bottom, border_color=color.green, bgcolor=bullish_ob_color, text="Bull OB", text_color=color.green, text_size=size.tiny)
 
 if is_bear_ob and show_ob
     array.push(bearish_ob_tops, bear_ob_top)
     array.push(bearish_ob_bottoms, bear_ob_bottom)
     array.push(bearish_ob_bars, bar_index)
-    box.new(bar_index - 1, bear_ob_top, bar_index + 20, bear_ob_bottom, 
-             border_color=color.red, bgcolor=bearish_ob_color, 
-             text="Bear OB", text_color=color.red, text_size=size.tiny)
+    box.new(bar_index - 1, bear_ob_top, bar_index + 20, bear_ob_bottom, border_color=color.red, bgcolor=bearish_ob_color, text="Bear OB", text_color=color.red, text_size=size.tiny)
 
 // Detect and plot Fair Value Gaps
 [is_bull_fvg, bull_fvg_top, bull_fvg_bottom] = detect_bullish_fvg()
@@ -306,17 +302,13 @@ if is_bull_fvg and show_fvg
     array.push(fvg_tops, bull_fvg_top)
     array.push(fvg_bottoms, bull_fvg_bottom)
     array.push(fvg_bars, bar_index)
-    box.new(bar_index - 2, bull_fvg_top, bar_index + 15, bull_fvg_bottom, 
-             border_color=color.blue, bgcolor=bullish_fvg_color, 
-             text="FVG", text_color=color.blue, text_size=size.tiny)
+    box.new(bar_index - 2, bull_fvg_top, bar_index + 15, bull_fvg_bottom, border_color=color.blue, bgcolor=bullish_fvg_color, text="FVG", text_color=color.blue, text_size=size.tiny)
 
 if is_bear_fvg and show_fvg
     array.push(fvg_tops, bear_fvg_top)
     array.push(fvg_bottoms, bear_fvg_bottom)
     array.push(fvg_bars, bar_index)
-    box.new(bar_index - 2, bear_fvg_top, bar_index + 15, bear_fvg_bottom, 
-             border_color=color.orange, bgcolor=bearish_fvg_color, 
-             text="FVG", text_color=color.orange, text_size=size.tiny)
+    box.new(bar_index - 2, bear_fvg_top, bar_index + 15, bear_fvg_bottom, border_color=color.orange, bgcolor=bearish_fvg_color, text="FVG", text_color=color.orange, text_size=size.tiny)
 
 // Generate signals
 buy_signal = generate_buy_signal()

@@ -82,17 +82,6 @@ cleanup_zones(zone_bars, zone_tops, zone_bottoms) =>
                 array.remove(zone_tops, i)
                 array.remove(zone_bottoms, i)
 
-// Reset daily trade count at start of new day
-reset_daily_count() =>
-    current_day = dayofweek
-    if last_trade_day == -1
-        // First initialization - set the day but don't reset counter
-        last_trade_day := current_day
-    else if current_day != last_trade_day
-        // New day detected, reset counter
-        daily_trade_count := 0
-        last_trade_day := current_day
-
 // Check if we can take a new trade
 can_trade() =>
     cooldown_ok = (bar_index - last_trade_bar) >= trade_cooldown
@@ -219,8 +208,15 @@ if not na(swing_low)
 
 // ==================== MAIN LOGIC ====================
 
-// Reset daily trade count
-reset_daily_count()
+// Reset daily trade count at start of new day (inline logic to avoid function scope issues)
+current_day = dayofweek
+if last_trade_day == -1
+    // First initialization - set the day but don't reset counter
+    last_trade_day := current_day
+else if current_day != last_trade_day
+    // New day detected, reset counter
+    daily_trade_count := 0
+    last_trade_day := current_day
 
 // Cleanup old zones
 cleanup_zones(bullish_ob_bars, bullish_ob_tops, bullish_ob_bottoms)

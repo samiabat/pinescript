@@ -26,8 +26,8 @@ LONDON_NY_END = time(16, 0)          # 16:00 UTC
 
 # Trading parameters
 MAX_TRADES_PER_DAY = 2
-MIN_FVG_PIPS = 50                    # Minimum FVG size in pips (Gold moves bigger)
-STOP_LOSS_BUFFER_PIPS = 20           # Buffer beyond sweep extreme (Gold volatility)
+MIN_FVG_PIPS = 10                    # Minimum FVG size in pips (10 pips = $1 for Gold)
+STOP_LOSS_BUFFER_PIPS = 5            # Buffer beyond sweep extreme
 TARGET_MIN_R = 3.0                   # Minimum risk-reward ratio
 TARGET_MAX_R = 5.0                   # Maximum risk-reward ratio
 
@@ -42,7 +42,7 @@ SWING_LOOKBACK = 5                   # Candles to look back for swing points
 DEBUG = False
 
 # Relaxed mode - set to True to allow neutral trend entries (less strict)
-RELAXED_MODE = False
+RELAXED_MODE = True                  # Default to True for Gold to get more trades
 
 # ============================================================================
 # UTILITY FUNCTIONS FOR GOLD

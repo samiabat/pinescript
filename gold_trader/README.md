@@ -9,10 +9,11 @@ This is a specialized version of the ICT backtest system optimized for Gold (XAU
 - **EURUSD**: 1 pip = $0.0001 per unit
 
 ### 2. Volatility Parameters
-Gold is more volatile than EURUSD, so parameters are adjusted:
+Gold parameters optimized for real market data:
 
-- `MIN_FVG_PIPS = 50` (vs 5 for EURUSD) - Gold moves in larger swings
-- `STOP_LOSS_BUFFER_PIPS = 20` (vs 2 for EURUSD) - More breathing room
+- `MIN_FVG_PIPS = 10` (10 pips = $1 for Gold) - Realistic FVG size for 15M timeframe
+- `STOP_LOSS_BUFFER_PIPS = 5` (5 pips = $0.50) - Adequate buffer for Gold
+- `RELAXED_MODE = True` by default - Allows neutral trend entries for more trades
 
 ### 3. Data File
 - Place your `XAUUSD15.csv` file in the parent directory
@@ -26,8 +27,9 @@ INITIAL_BALANCE = 10000.0            # Starting capital
 RISK_PER_TRADE = 0.01                # 1% risk per trade
 
 # Gold-specific parameters
-MIN_FVG_PIPS = 50                    # Minimum FVG size in pips
-STOP_LOSS_BUFFER_PIPS = 20           # Buffer beyond sweep extreme
+MIN_FVG_PIPS = 10                    # Minimum FVG size in pips (10 pips = $1)
+STOP_LOSS_BUFFER_PIPS = 5            # Buffer beyond sweep extreme
+RELAXED_MODE = True                  # Default to True for more trades
 ```
 
 ## Usage

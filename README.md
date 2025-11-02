@@ -1,6 +1,6 @@
 # ICT Smart Money Backtest System
 
-A professional implementation of an Inner Circle Trader (ICT) strategy backtest for EURUSD 15-minute historical data.
+A professional implementation of an Inner Circle Trader (ICT) strategy backtest for EURUSD 15-minute historical data with realistic trading costs and account protection.
 
 ## Overview
 
@@ -13,8 +13,10 @@ This backtest system implements a strict ICT smart money strategy with the follo
 - **Discretion Filters**: Avoids messy candles, low liquidity periods, and small FVGs
 - **Risk Management**: 1% risk per trade with position sizing based on stop-loss distance
 - **No Look-Ahead Bias**: Uses only historical data available at each point in time
-- **Realistic Leverage Limits**: Optional leverage with broker-realistic constraints (max 30x)
-- **Trade Visualization**: Automatic candlestick chart generation for each trade
+- **Realistic Trading Costs**: Includes spread and slippage on every trade
+- **Account Blow Protection**: Automatically stops trading if balance falls below minimum threshold
+- **Trade Visualization**: Automatic TradingView-style candlestick chart generation for each trade
+- **Performance Analytics**: Comprehensive monthly and yearly performance breakdowns
 
 ## Requirements
 
@@ -32,13 +34,18 @@ INITIAL_BALANCE = 10000.0            # Starting capital ($)
 RISK_PER_TRADE = 0.01                # 1% risk per trade
 
 # Trading parameters
-MAX_TRADES_PER_DAY = 5                # Maximum trades per day (increased for more opportunities)
-MIN_FVG_PIPS = 3                      # Minimum FVG size in pips (reduced for smaller valid FVGs)
-STOP_LOSS_BUFFER_PIPS = 2             # Buffer beyond sweep extreme
-SWING_LOOKBACK = 3                    # Candles for swing detection (reduced for sensitivity)
-SWEEP_REJECTION_PIPS = 2              # Minimum rejection size for sweeps
-TARGET_MIN_R = 3.0                    # Minimum risk-reward ratio
-TARGET_MAX_R = 5.0                    # Maximum risk-reward ratio
+MAX_TRADES_PER_DAY = 10                # Maximum trades per day (increased for more opportunities)
+MIN_FVG_PIPS = 2                       # Minimum FVG size in pips (reduced for smaller valid FVGs)
+STOP_LOSS_BUFFER_PIPS = 2              # Buffer beyond sweep extreme
+SWING_LOOKBACK = 2                     # Candles for swing detection (reduced for sensitivity)
+SWEEP_REJECTION_PIPS = 1               # Minimum rejection size for sweeps
+TARGET_MIN_R = 3.0                     # Minimum risk-reward ratio
+TARGET_MAX_R = 5.0                     # Maximum risk-reward ratio
+
+# Realistic trading costs
+SPREAD_PIPS = 0.8                      # Typical EURUSD spread (0.5-1.5 pips)
+SLIPPAGE_PIPS = 0.5                    # Average slippage on entry/exit
+MIN_BALANCE_THRESHOLD = 100.0          # Minimum balance to continue trading (account blow protection)
 
 # Chart generation
 GENERATE_TRADE_CHARTS = True          # Generate candlestick charts for each trade

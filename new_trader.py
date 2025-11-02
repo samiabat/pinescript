@@ -31,6 +31,11 @@ STOP_LOSS_BUFFER_PIPS = 2             # Buffer beyond sweep extreme
 TARGET_MIN_R = 3.0                    # Minimum risk-reward ratio
 TARGET_MAX_R = 5.0                    # Maximum risk-reward ratio
 
+# Realistic trading costs
+SPREAD_PIPS = 0.8                     # Typical EURUSD spread (0.5-1.5 pips)
+SLIPPAGE_PIPS = 0.5                   # Average slippage on entry/exit
+MIN_BALANCE_THRESHOLD = 100.0         # Minimum balance to continue trading (account blow protection)
+
 # Chart generation
 GENERATE_TRADE_CHARTS = True          # Generate candlestick charts for each trade
 TRADE_CHARTS_FOLDER = "trade_charts"  # Folder to save trade charts
@@ -337,16 +342,18 @@ def check_trade_exit(trade: Trade, candle: pd.Series) -> bool:
     if trade.direction == 'long':
         # Check stop loss
         if candle['low'] <= trade.stop_loss:
-            trade.exit_price = trade.stop_loss
+            # Apply slippage - exit slightly worse than SL level
+            trade.exit_price = trade.stop_loss - pips_to_price(SLIPPAGE_PIPS)
             trade.exit_time = candle['datetime']
             trade.result = 'SL'
-            trade.pnl_pips = -abs(price_to_pips(trade.entry_price - trade.stop_loss))
+            trade.pnl_pips = -abs(price_to_pips(trade.entry_price - trade.exit_price))
             trade.pnl_usd = trade.pnl_pips * 0.0001 * trade.position_size
             return True
         
         # Check take profit
         if candle['high'] >= trade.take_profit:
-            trade.exit_price = trade.take_profit
+            # Apply slippage - exit slightly worse than TP level
+            trade.exit_price = trade.take_profit - pips_to_price(SLIPPAGE_PIPS)
             trade.exit_time = candle['datetime']
             trade.result = 'TP'
             trade.pnl_pips = price_to_pips(trade.take_profit - trade.entry_price)
@@ -356,19 +363,21 @@ def check_trade_exit(trade: Trade, candle: pd.Series) -> bool:
     else:  # short
         # Check stop loss
         if candle['high'] >= trade.stop_loss:
-            trade.exit_price = trade.stop_loss
+            # Apply slippage - exit slightly worse than SL level
+            trade.exit_price = trade.stop_loss + pips_to_price(SLIPPAGE_PIPS)
             trade.exit_time = candle['datetime']
             trade.result = 'SL'
-            trade.pnl_pips = -abs(price_to_pips(trade.stop_loss - trade.entry_price))
+            trade.pnl_pips = -abs(price_to_pips(trade.exit_price - trade.entry_price))
             trade.pnl_usd = trade.pnl_pips * 0.0001 * trade.position_size
             return True
         
         # Check take profit
         if candle['low'] <= trade.take_profit:
-            trade.exit_price = trade.take_profit
+            # Apply slippage - exit slightly worse than TP level
+            trade.exit_price = trade.take_profit + pips_to_price(SLIPPAGE_PIPS)
             trade.exit_time = candle['datetime']
             trade.result = 'TP'
-            trade.pnl_pips = price_to_pips(trade.entry_price - trade.take_profit)
+            trade.pnl_pips = price_to_pips(trade.entry_price - trade.exit_price)
             trade.pnl_usd = trade.pnl_pips * 0.0001 * trade.position_size
             return True
     
@@ -442,11 +451,27 @@ class ICTBacktester:
                     print(f"Trade #{len(self.trades)} closed: {self.active_trade.result} "
                           f"| {self.active_trade.pnl_pips:.1f} pips | ${self.active_trade.pnl_usd:.2f}")
                     
+                    # ACCOUNT BLOW PROTECTION: Stop trading if balance falls below minimum threshold
+                    if self.balance < MIN_BALANCE_THRESHOLD:
+                        print(f"\n{'='*80}")
+                        print(f"ACCOUNT BLOW DETECTED!")
+                        print(f"Current balance: ${self.balance:.2f}")
+                        print(f"Minimum threshold: ${MIN_BALANCE_THRESHOLD:.2f}")
+                        print(f"Stopping backtest at {candle['datetime']} after {len(self.trades)} trades")
+                        print(f"{'='*80}\n")
+                        break  # Exit the backtest loop
+                    
                     self.active_trade = None
                 continue  # Don't look for new trades while in a trade
             
             # Only look for trades during trading session
             if not candle['is_session']:
+                continue
+            
+            # ACCOUNT BLOW PROTECTION: Don't take new trades if balance is too low
+            if self.balance < MIN_BALANCE_THRESHOLD:
+                if DEBUG:
+                    print(f"  Skipping new trades - balance (${self.balance:.2f}) below minimum threshold (${MIN_BALANCE_THRESHOLD:.2f})")
                 continue
             
             # Check daily trade limit
@@ -587,7 +612,10 @@ class ICTBacktester:
         if trend == 'bullish':
             # Long trade
             direction = 'long'
-            entry_price = fvg['bottom']  # Enter at bottom of FVG
+            entry_price_base = fvg['bottom']  # Enter at bottom of FVG
+            
+            # Apply spread cost - buy at ask price (worse for longs)
+            entry_price = entry_price_base + pips_to_price(SPREAD_PIPS)
             
             # Stop loss beyond sweep low with buffer
             stop_loss = sweep['price'] - pips_to_price(STOP_LOSS_BUFFER_PIPS)
@@ -607,7 +635,10 @@ class ICTBacktester:
         else:  # bearish
             # Short trade
             direction = 'short'
-            entry_price = fvg['top']  # Enter at top of FVG
+            entry_price_base = fvg['top']  # Enter at top of FVG
+            
+            # Apply spread cost - sell at bid price (worse for shorts)
+            entry_price = entry_price_base - pips_to_price(SPREAD_PIPS)
             
             # Stop loss beyond sweep high with buffer
             stop_loss = sweep['price'] + pips_to_price(STOP_LOSS_BUFFER_PIPS)
@@ -1151,6 +1182,12 @@ class ICTBacktester:
         print(f"Ending Balance:      ${metrics['ending_balance']:,.2f}")
         print(f"Total Return:        {metrics['return_pct']:.2f}%")
         print(f"Max Drawdown:        {metrics['max_drawdown_pct']:.2f}%")
+        print("-" * 80)
+        print("TRADING COSTS (Applied):")
+        print(f"Spread:              {SPREAD_PIPS:.1f} pips per trade")
+        print(f"Slippage:            {SLIPPAGE_PIPS:.1f} pips per exit")
+        print(f"Total Cost:          ~{SPREAD_PIPS + SLIPPAGE_PIPS:.1f} pips per round trip")
+        print(f"Est. Total Cost:     ${(SPREAD_PIPS + SLIPPAGE_PIPS) * 0.0001 * metrics['total_trades'] * 10000:,.2f} (assuming avg position)")
         print("=" * 80)
 
 # ============================================================================
@@ -1165,6 +1202,13 @@ def main():
     
     # Load data
     df = load_data(CSV_PATH)
+    
+    print(f"\nStarting ICT backtest...")
+    print(f"Initial balance: ${INITIAL_BALANCE:,.2f}")
+    print(f"Risk per trade: {RISK_PER_TRADE * 100:.1f}%")
+    print(f"Spread cost: {SPREAD_PIPS:.1f} pips | Slippage: {SLIPPAGE_PIPS:.1f} pips")
+    print(f"Account blow protection: Trading stops if balance < ${MIN_BALANCE_THRESHOLD:.2f}")
+    print("=" * 80)
     
     # Initialize backtest
     backtest = ICTBacktester(df, INITIAL_BALANCE)

@@ -34,6 +34,12 @@ TARGET_MAX_R = 5.0                   # Maximum risk-reward ratio
 # Swing detection parameters
 SWING_LOOKBACK = 5                   # Candles to look back for swing points
 
+# Debug mode - set to True to see detailed pattern detection
+DEBUG = False
+
+# Relaxed mode - set to True to allow neutral trend entries (less strict)
+RELAXED_MODE = False
+
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
@@ -366,7 +372,7 @@ class ICTBacktester:
         
         # Tracking
         self.daily_trades = {}
-        self.pending_setups = []  # Store potential setups
+        self.recent_sweeps = []  # Store recent sweeps (last 20 candles)
     
     def run(self):
         """Execute the backtest bar-by-bar"""
@@ -453,6 +459,7 @@ class ICTBacktester:
     def check_entry_setup(self, idx: int) -> Optional[Trade]:
         """
         Check if all ICT confluence conditions are met for entry
+        This version tracks recent sweeps and checks for subsequent MSS and FVG
         """
         # Need minimum data
         if idx < 50:
@@ -462,55 +469,81 @@ class ICTBacktester:
         
         # 1. Check trend bias
         trend = detect_1h_trend(self.df, idx)
-        if trend == 'neutral':
+        if trend == 'neutral' and not RELAXED_MODE:
             return None
         
-        # 2. Detect liquidity sweep
+        # In relaxed mode, allow neutral trend but infer from sweep type
+        if trend == 'neutral' and RELAXED_MODE:
+            trend = 'neutral_relaxed'
+        
+        # 2. Detect and store new liquidity sweeps
         sweep = detect_liquidity_sweep(self.df, idx)
-        if not sweep:
-            return None
+        if sweep:
+            # Store this sweep with trend info
+            sweep['trend'] = trend
+            sweep['detected_at'] = idx
+            self.recent_sweeps.append(sweep)
+            if DEBUG:
+                print(f"  Sweep detected at {candle['datetime']}: {sweep['type']}, trend={trend}")
         
-        # 3. Check if sweep aligns with trend
-        if trend == 'bullish' and sweep['type'] != 'bull_sweep':
-            return None
-        if trend == 'bearish' and sweep['type'] != 'bear_sweep':
-            return None
+        # Clean up old sweeps (older than 20 candles)
+        self.recent_sweeps = [s for s in self.recent_sweeps if idx - s['detected_at'] <= 20]
         
-        # 4. Wait for MSS (market structure shift)
-        # We need to wait a few candles after sweep
-        if idx < sweep['idx'] + 2:
-            return None
+        # 3. Check recent sweeps for MSS and FVG formation
+        for sweep in self.recent_sweeps:
+            # In relaxed mode, infer trend from sweep type
+            if trend == 'neutral_relaxed':
+                expected_trend = 'bullish' if sweep['type'] == 'bull_sweep' else 'bearish'
+            else:
+                # Skip if sweep doesn't align with current trend
+                if sweep['trend'] != trend:
+                    continue
+                expected_trend = trend
+            
+            # Skip if sweep is too recent (need at least 2 candles for MSS)
+            if idx < sweep['idx'] + 2:
+                continue
+            
+            # Check for MSS
+            has_mss = detect_mss(self.df, sweep['idx'], idx, sweep['type'])
+            if not has_mss:
+                continue
+            
+            if DEBUG:
+                print(f"  MSS confirmed at {candle['datetime']} for sweep at idx {sweep['idx']}")
+            
+            # Check for FVG
+            fvg = detect_fvg(self.df, idx)
+            if not fvg:
+                continue
+            
+            if DEBUG:
+                print(f"  FVG detected at {candle['datetime']}: {fvg['type']}")
+            
+            # Check FVG type aligns with trend
+            if expected_trend == 'bullish' and fvg['type'] != 'bullish':
+                continue
+            if expected_trend == 'bearish' and fvg['type'] != 'bearish':
+                continue
+            
+            # Apply discretion filters
+            if is_messy_candle_cluster(self.df, idx):
+                if DEBUG:
+                    print(f"  Skipped: messy candle cluster")
+                continue
+            
+            if is_low_liquidity(self.df, idx):
+                if DEBUG:
+                    print(f"  Skipped: low liquidity")
+                continue
+            
+            # All conditions met! Remove this sweep and prepare trade
+            if DEBUG:
+                print(f"  ✓ ALL CONDITIONS MET - Preparing trade")
+            self.recent_sweeps.remove(sweep)
+            return self.prepare_trade(idx, expected_trend, sweep, fvg)
         
-        has_mss = detect_mss(self.df, sweep['idx'], idx, sweep['type'])
-        if not has_mss:
-            return None
-        
-        # 5. Detect FVG (Fair Value Gap)
-        fvg = detect_fvg(self.df, idx)
-        if not fvg:
-            return None
-        
-        # Check FVG type aligns with trend
-        if trend == 'bullish' and fvg['type'] != 'bullish':
-            return None
-        if trend == 'bearish' and fvg['type'] != 'bearish':
-            return None
-        
-        # 6. Check for order block (optional confirmation)
-        # Commenting out to make entries easier, but can be enabled
-        # has_ob = detect_order_block(self.df, idx, trend)
-        # if not has_ob:
-        #     return None
-        
-        # 7. Apply discretion filters
-        if is_messy_candle_cluster(self.df, idx):
-            return None
-        
-        if is_low_liquidity(self.df, idx):
-            return None
-        
-        # All conditions met! Prepare trade entry
-        return self.prepare_trade(idx, trend, sweep, fvg)
+        return None
     
     def prepare_trade(self, idx: int, trend: str, sweep: Dict, fvg: Dict) -> Trade:
         """Prepare trade with proper SL, TP, and position sizing"""
@@ -676,6 +709,7 @@ class ICTBacktester:
             print("    - Quality filters passed")
             print("\nTip: Use real market data with clear trends and reversals for better results.")
             print("     The sample data is randomly generated for testing purposes only.")
+            print("\nTo diagnose further, enable DEBUG mode by setting DEBUG=True in new_trader.py")
             return
         
         print("\n" + "=" * 80)

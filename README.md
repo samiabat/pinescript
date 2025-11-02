@@ -34,7 +34,20 @@ MIN_FVG_PIPS = 5                     # Minimum FVG size in pips
 STOP_LOSS_BUFFER_PIPS = 2            # Buffer beyond sweep extreme
 TARGET_MIN_R = 3.0                   # Minimum risk-reward ratio
 TARGET_MAX_R = 5.0                   # Maximum risk-reward ratio
+
+# Debug and relaxed modes
+DEBUG = False                        # Set to True to see detailed pattern detection
+RELAXED_MODE = False                 # Set to True to allow neutral trend entries
 ```
+
+### Getting More Trades
+
+If you're getting few or no trades, try these adjustments:
+
+1. **Enable RELAXED_MODE**: Set `RELAXED_MODE = True` to allow entries even when 1H trend is neutral
+2. **Reduce MIN_FVG_PIPS**: Lower to 3-4 pips if your data has smaller movements
+3. **Increase MAX_TRADES_PER_DAY**: Set to 3 or 4 for more opportunities
+4. **Enable DEBUG mode**: Set `DEBUG = True` to see why setups are being rejected
 
 ## Data Format
 
@@ -159,6 +172,45 @@ Max Drawdown:        8.35%
 - Adjust parameters based on your analysis and backtesting results
 - Always validate on multiple years of data before live trading
 - Past performance does not guarantee future results
+
+## Troubleshooting
+
+### "No trades executed" even with real data
+
+**This was a known issue that has been FIXED.** The problem was that the strategy checked for sweep, MSS, and FVG all on the same candle, but these patterns occur in sequence. The fix now tracks recent sweeps and checks for MSS/FVG formation on subsequent candles.
+
+**If you still see no trades:**
+
+1. **Enable RELAXED_MODE**: Set `RELAXED_MODE = True` in the configuration
+   - This allows trades even when 1H trend is neutral
+   - Useful for ranging markets or less trending periods
+
+2. **Reduce MIN_FVG_PIPS**: Lower from 5 to 3 pips
+   - Some markets have smaller FVGs
+   
+3. **Enable DEBUG mode**: Set `DEBUG = True`
+   - See exactly which patterns are being detected
+   - Understand why setups are being rejected
+
+4. **Check your data format**: Ensure CSV matches the required format:
+   ```
+   2021-10-29 20:15    1.15614 1.15618 1.15599 1.15615 254
+   ```
+   - Columns: datetime (space-separated date and time), open, high, low, close, volume
+   - No header row
+   - Space-separated values
+
+### Low trade frequency
+
+This is normal! ICT strategies are quality-focused and wait for perfect setups. With strict parameters:
+- 1 year of 15M data might produce 10-50 trades
+- This is intentional for high win-rate, high R:R trades
+
+To increase frequency (at the cost of quality):
+- Enable `RELAXED_MODE = True`
+- Increase `MAX_TRADES_PER_DAY`
+- Reduce `MIN_FVG_PIPS`
+- Adjust session times to include more hours
 
 ## Customization
 

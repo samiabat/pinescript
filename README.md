@@ -130,14 +130,55 @@ Contains detailed information for each trade:
 - Result (TP/SL/Timeout)
 - Position size
 
-### 2. Equity Curve (`equity_curve.png`)
+### 2. Monthly & Yearly Performance Analysis
+
+**NEW**: Comprehensive time-based performance breakdown:
+
+#### `yearly_performance.csv`
+- Total trades per year
+- Wins/losses breakdown
+- Win rate percentage
+- Total P&L for each year
+
+#### `monthly_performance.csv`
+- Detailed month-by-month performance
+- Trade count per month
+- Win rate per month
+- Total and average P&L per month
+
+#### `monthly_heatmap_data.csv`
+- Pivot table format for visualization
+- P&L and trade count by year and month
+- Perfect for creating heatmap visualizations
+
+**Console Output Includes:**
+- Yearly performance summary with trade stats
+- Monthly performance for all months
+- Top 5 best performing months
+- Top 5 worst performing months
+- Complete breakdown showing which months/years were most profitable
+
+### 3. Equity Curve (`equity_curve.png`)
 
 Visual representation of account balance over time showing:
 - Account growth/drawdown
 - Initial balance reference line
 - Complete equity progression
 
-### 3. Performance Metrics (console output)
+### 4. Trade Charts (`trade_charts/` folder)
+
+**TradingView-Style Visualization** - Each trade gets a professional chart:
+- Dark theme matching TradingView appearance
+- LONG/SHORT position markers with colored labels
+- RED zone for Stop Loss area (semi-transparent rectangle)
+- GREEN zone for Take Profit area (semi-transparent rectangle)
+- 80+ candles of context (40 before entry, 40 after exit)
+- Timestamps on X-axis (15-minute intervals)
+- Price values on Y-axis
+- Complete trade details in info box with ICT signals checklist
+- File naming: `trade_001_long_TP.png`, `trade_002_short_SL.png`, etc.
+
+### 5. Performance Metrics (console output)
 
 ```
 BACKTEST PERFORMANCE SUMMARY

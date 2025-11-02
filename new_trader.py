@@ -730,6 +730,131 @@ class ICTBacktester:
         df_journal.to_csv(filename, index=False)
         print(f"\nTrade journal saved to {filename}")
     
+    def generate_monthly_yearly_analysis(self):
+        """Generate comprehensive monthly and yearly performance analytics"""
+        if not self.trades:
+            print("\nNo trades to analyze.")
+            return
+        
+        # Prepare trade data with datetime
+        trade_data = []
+        for trade in self.trades:
+            if not np.isnan(trade.pnl_usd) and not np.isinf(trade.pnl_usd):
+                trade_data.append({
+                    'datetime': trade.entry_time,
+                    'pnl_usd': trade.pnl_usd,
+                    'result': trade.result
+                })
+        
+        df = pd.DataFrame(trade_data)
+        df['datetime'] = pd.to_datetime(df['datetime'])
+        df['year'] = df['datetime'].dt.year
+        df['month'] = df['datetime'].dt.month
+        df['year_month'] = df['datetime'].dt.to_period('M')
+        
+        # ====== YEARLY ANALYSIS ======
+        print("\n" + "="*80)
+        print("YEARLY PERFORMANCE ANALYSIS")
+        print("="*80)
+        
+        yearly_stats = []
+        for year in sorted(df['year'].unique()):
+            year_df = df[df['year'] == year]
+            total_trades = len(year_df)
+            winning = len(year_df[year_df['pnl_usd'] > 0])
+            losing = len(year_df[year_df['pnl_usd'] < 0])
+            win_rate = (winning / total_trades * 100) if total_trades > 0 else 0
+            total_pnl = year_df['pnl_usd'].sum()
+            
+            yearly_stats.append({
+                'Year': year,
+                'Trades': total_trades,
+                'Wins': winning,
+                'Losses': losing,
+                'Win Rate %': round(win_rate, 1),
+                'Total P&L $': round(total_pnl, 2)
+            })
+            
+            print(f"\n{year}:")
+            print(f"  Total Trades:  {total_trades}")
+            print(f"  Winning:       {winning}")
+            print(f"  Losing:        {losing}")
+            print(f"  Win Rate:      {win_rate:.1f}%")
+            print(f"  Total P&L:     ${total_pnl:,.2f}")
+        
+        # Save yearly stats to CSV
+        df_yearly = pd.DataFrame(yearly_stats)
+        df_yearly.to_csv('yearly_performance.csv', index=False)
+        print(f"\nYearly performance saved to yearly_performance.csv")
+        
+        # ====== MONTHLY ANALYSIS ======
+        print("\n" + "="*80)
+        print("MONTHLY PERFORMANCE ANALYSIS")
+        print("="*80)
+        
+        monthly_stats = []
+        for year_month in sorted(df['year_month'].unique()):
+            month_df = df[df['year_month'] == year_month]
+            total_trades = len(month_df)
+            winning = len(month_df[month_df['pnl_usd'] > 0])
+            losing = len(month_df[month_df['pnl_usd'] < 0])
+            win_rate = (winning / total_trades * 100) if total_trades > 0 else 0
+            total_pnl = month_df['pnl_usd'].sum()
+            avg_pnl = month_df['pnl_usd'].mean()
+            
+            monthly_stats.append({
+                'Year-Month': str(year_month),
+                'Trades': total_trades,
+                'Wins': winning,
+                'Losses': losing,
+                'Win Rate %': round(win_rate, 1),
+                'Total P&L $': round(total_pnl, 2),
+                'Avg P&L $': round(avg_pnl, 2)
+            })
+        
+        # Save monthly stats to CSV
+        df_monthly = pd.DataFrame(monthly_stats)
+        df_monthly.to_csv('monthly_performance.csv', index=False)
+        print(f"\nMonthly performance saved to monthly_performance.csv")
+        
+        # Display monthly summary (last 12 months or all if less)
+        print("\nRecent Monthly Performance:")
+        print("-" * 80)
+        display_months = min(12, len(df_monthly))
+        for _, row in df_monthly.tail(display_months).iterrows():
+            print(f"{row['Year-Month']}: {row['Trades']} trades, "
+                  f"{row['Win Rate %']:.1f}% WR, "
+                  f"${row['Total P&L $']:,.2f} P&L")
+        
+        # ====== MONTHLY HEATMAP DATA ======
+        # Create a pivot table for better visualization
+        heatmap_data = df.groupby(['year', 'month']).agg({
+            'pnl_usd': 'sum',
+            'result': 'count'
+        }).reset_index()
+        heatmap_data.columns = ['Year', 'Month', 'P&L_USD', 'Trade_Count']
+        heatmap_data.to_csv('monthly_heatmap_data.csv', index=False)
+        print(f"\nMonthly heatmap data saved to monthly_heatmap_data.csv")
+        
+        # ====== BEST/WORST MONTHS ======
+        print("\n" + "="*80)
+        print("BEST & WORST PERFORMING MONTHS")
+        print("="*80)
+        
+        df_monthly_sorted = df_monthly.sort_values('Total P&L $', ascending=False)
+        
+        print("\nTop 5 Best Months:")
+        for i, (_, row) in enumerate(df_monthly_sorted.head(5).iterrows(), 1):
+            print(f"  {i}. {row['Year-Month']}: ${row['Total P&L $']:,.2f} "
+                  f"({row['Trades']} trades, {row['Win Rate %']:.1f}% WR)")
+        
+        print("\nTop 5 Worst Months:")
+        for i, (_, row) in enumerate(df_monthly_sorted.tail(5).iterrows(), 1):
+            print(f"  {i}. {row['Year-Month']}: ${row['Total P&L $']:,.2f} "
+                  f"({row['Trades']} trades, {row['Win Rate %']:.1f}% WR)")
+        
+        print("\n" + "="*80)
+    
     def plot_equity_curve(self, filename: str = 'equity_curve.png'):
         """Generate and save equity curve chart"""
         if not self.equity_curve:
@@ -1050,15 +1175,18 @@ def main():
     # Print summary
     backtest.print_summary()
     
+    # Generate monthly and yearly analysis
+    backtest.generate_monthly_yearly_analysis()
+    
     # Save outputs
     backtest.save_trade_journal('trade_journal.csv')
     backtest.plot_equity_curve('equity_curve.png')
     backtest.generate_trade_charts()
     
     if GENERATE_TRADE_CHARTS and len(backtest.trades) > 0:
-        print(f"\nBacktest complete! Check trade_journal.csv, equity_curve.png, and {TRADE_CHARTS_FOLDER}/ for details.")
+        print(f"\nBacktest complete! Check trade_journal.csv, equity_curve.png, {TRADE_CHARTS_FOLDER}/, and monthly/yearly performance files for details.")
     else:
-        print("\nBacktest complete! Check trade_journal.csv and equity_curve.png for details.")
+        print("\nBacktest complete! Check trade_journal.csv, equity_curve.png, and monthly/yearly performance files for details.")
 
 if __name__ == "__main__":
     main()

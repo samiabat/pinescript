@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-ICT (Inner Circle Trader) Smart Money Backtest System
-Implements a strict ICT strategy backtest on EURUSD 15-minute data
+ICT (Inner Circle Trader) Smart Money Backtest System for GOLD (XAUUSD)
+Implements a strict ICT strategy backtest on XAUUSD 15-minute data
 """
 
 import pandas as pd
@@ -13,10 +13,10 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # ============================================================================
-# CONFIGURATION
+# CONFIGURATION FOR GOLD (XAUUSD)
 # ============================================================================
 
-CSV_PATH = "EURUSD15.csv"           # Your data file
+CSV_PATH = "XAUUSD15.csv"            # Your Gold data file
 INITIAL_BALANCE = 10000.0            # Starting capital
 RISK_PER_TRADE = 0.01                # 1% risk per trade
 
@@ -26,8 +26,8 @@ LONDON_NY_END = time(16, 0)          # 16:00 UTC
 
 # Trading parameters
 MAX_TRADES_PER_DAY = 2
-MIN_FVG_PIPS = 5                     # Minimum FVG size in pips
-STOP_LOSS_BUFFER_PIPS = 2            # Buffer beyond sweep extreme
+MIN_FVG_PIPS = 50                    # Minimum FVG size in pips (Gold moves bigger)
+STOP_LOSS_BUFFER_PIPS = 20           # Buffer beyond sweep extreme (Gold volatility)
 TARGET_MIN_R = 3.0                   # Minimum risk-reward ratio
 TARGET_MAX_R = 5.0                   # Maximum risk-reward ratio
 
@@ -45,16 +45,16 @@ DEBUG = False
 RELAXED_MODE = False
 
 # ============================================================================
-# UTILITY FUNCTIONS
+# UTILITY FUNCTIONS FOR GOLD
 # ============================================================================
 
 def pips_to_price(pips: float) -> float:
-    """Convert pips to price for EURUSD"""
-    return pips * 0.0001
+    """Convert pips to price for GOLD (1 pip = $0.10 for XAUUSD)"""
+    return pips * 0.10
 
 def price_to_pips(price_diff: float) -> float:
-    """Convert price difference to pips for EURUSD"""
-    return price_diff / 0.0001
+    """Convert price difference to pips for GOLD"""
+    return price_diff / 0.10
 
 def is_trading_session(dt: datetime) -> bool:
     """Check if datetime is within London + New York session"""
@@ -308,7 +308,7 @@ class Trade:
         self.pnl_usd = 0
 
 def calculate_position_size(balance: float, risk_pct: float, sl_pips: float) -> float:
-    """Calculate position size based on risk and SL distance"""
+    """Calculate position size based on risk and SL distance for GOLD"""
     # Safeguards against invalid values
     if balance <= 0 or np.isnan(balance) or np.isinf(balance):
         return 0
@@ -320,9 +320,9 @@ def calculate_position_size(balance: float, risk_pct: float, sl_pips: float) -> 
     sl_pips = max(sl_pips, 1.0)
     
     risk_amount = balance * risk_pct
-    # For EURUSD, 1 pip = $0.0001 per unit
+    # For XAUUSD (Gold), 1 pip = $0.10 per unit (0.01 lot)
     # Position size = Risk Amount / (SL in pips * pip value)
-    pip_value = 0.0001
+    pip_value = 0.10
     position_size = risk_amount / (sl_pips * pip_value)
     
     # Additional safeguard against unreasonably large position sizes
@@ -340,7 +340,7 @@ def check_trade_exit(trade: Trade, candle: pd.Series) -> bool:
             trade.exit_time = candle['datetime']
             trade.result = 'SL'
             trade.pnl_pips = -abs(price_to_pips(trade.entry_price - trade.stop_loss))
-            trade.pnl_usd = trade.pnl_pips * 0.0001 * trade.position_size
+            trade.pnl_usd = trade.pnl_pips * 0.10 * trade.position_size
             return True
         
         # Check take profit
@@ -349,7 +349,7 @@ def check_trade_exit(trade: Trade, candle: pd.Series) -> bool:
             trade.exit_time = candle['datetime']
             trade.result = 'TP'
             trade.pnl_pips = price_to_pips(trade.take_profit - trade.entry_price)
-            trade.pnl_usd = trade.pnl_pips * 0.0001 * trade.position_size
+            trade.pnl_usd = trade.pnl_pips * 0.10 * trade.position_size
             return True
     
     else:  # short
@@ -359,7 +359,7 @@ def check_trade_exit(trade: Trade, candle: pd.Series) -> bool:
             trade.exit_time = candle['datetime']
             trade.result = 'SL'
             trade.pnl_pips = -abs(price_to_pips(trade.stop_loss - trade.entry_price))
-            trade.pnl_usd = trade.pnl_pips * 0.0001 * trade.position_size
+            trade.pnl_usd = trade.pnl_pips * 0.10 * trade.position_size
             return True
         
         # Check take profit
@@ -368,7 +368,7 @@ def check_trade_exit(trade: Trade, candle: pd.Series) -> bool:
             trade.exit_time = candle['datetime']
             trade.result = 'TP'
             trade.pnl_pips = price_to_pips(trade.entry_price - trade.take_profit)
-            trade.pnl_usd = trade.pnl_pips * 0.0001 * trade.position_size
+            trade.pnl_usd = trade.pnl_pips * 0.10 * trade.position_size
             return True
     
     return False
@@ -912,7 +912,7 @@ class ICTBacktester:
 def main():
     """Main execution function"""
     print("=" * 80)
-    print("ICT SMART MONEY BACKTEST SYSTEM")
+    print("ICT SMART MONEY BACKTEST SYSTEM - GOLD (XAUUSD)")
     print("=" * 80)
     
     # Load data

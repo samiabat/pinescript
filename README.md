@@ -32,23 +32,21 @@ INITIAL_BALANCE = 10000.0            # Starting capital ($)
 RISK_PER_TRADE = 0.01                # 1% risk per trade
 
 # Trading parameters
-MAX_TRADES_PER_DAY = 2               # Maximum trades per day
-MIN_FVG_PIPS = 5                     # Minimum FVG size in pips
-STOP_LOSS_BUFFER_PIPS = 2            # Buffer beyond sweep extreme
-TARGET_MIN_R = 3.0                   # Minimum risk-reward ratio
-TARGET_MAX_R = 5.0                   # Maximum risk-reward ratio
+MAX_TRADES_PER_DAY = 5                # Maximum trades per day (increased for more opportunities)
+MIN_FVG_PIPS = 3                      # Minimum FVG size in pips (reduced for smaller valid FVGs)
+STOP_LOSS_BUFFER_PIPS = 2             # Buffer beyond sweep extreme
+SWING_LOOKBACK = 3                    # Candles for swing detection (reduced for sensitivity)
+SWEEP_REJECTION_PIPS = 2              # Minimum rejection size for sweeps
+TARGET_MIN_R = 3.0                    # Minimum risk-reward ratio
+TARGET_MAX_R = 5.0                    # Maximum risk-reward ratio
 
-# Leverage settings (NEW)
-MAX_LEVERAGE = 30                    # Maximum leverage (realistic broker limit)
-USE_LEVERAGE = False                 # Set to True to use leverage
-
-# Chart generation (NEW)
-GENERATE_TRADE_CHARTS = True         # Generate candlestick charts for each trade
-TRADE_CHARTS_FOLDER = "trade_charts" # Folder to save trade charts
+# Chart generation
+GENERATE_TRADE_CHARTS = True          # Generate candlestick charts for each trade
+TRADE_CHARTS_FOLDER = "trade_charts"  # Folder to save trade charts
 
 # Debug and relaxed modes
-DEBUG = False                        # Set to True to see detailed pattern detection
-RELAXED_MODE = False                 # Set to True to allow neutral trend entries
+DEBUG = False                         # Set to True to see detailed pattern detection
+RELAXED_MODE = True                   # Enabled by default for more trading opportunities
 ```
 
 ### New Features

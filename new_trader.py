@@ -25,24 +25,25 @@ LONDON_NY_START = time(7, 0)         # 07:00 UTC
 LONDON_NY_END = time(16, 0)          # 16:00 UTC
 
 # Trading parameters
-MAX_TRADES_PER_DAY = 2
-MIN_FVG_PIPS = 5                     # Minimum FVG size in pips
-STOP_LOSS_BUFFER_PIPS = 2            # Buffer beyond sweep extreme
-TARGET_MIN_R = 3.0                   # Minimum risk-reward ratio
-TARGET_MAX_R = 5.0                   # Maximum risk-reward ratio
+MAX_TRADES_PER_DAY = 5                # Increased from 2 to allow more opportunities
+MIN_FVG_PIPS = 3                      # Reduced from 5 to capture smaller but valid FVGs
+STOP_LOSS_BUFFER_PIPS = 2             # Buffer beyond sweep extreme
+TARGET_MIN_R = 3.0                    # Minimum risk-reward ratio
+TARGET_MAX_R = 5.0                    # Maximum risk-reward ratio
 
 # Chart generation
-GENERATE_TRADE_CHARTS = True         # Generate candlestick charts for each trade
-TRADE_CHARTS_FOLDER = "trade_charts" # Folder to save trade charts
+GENERATE_TRADE_CHARTS = True          # Generate candlestick charts for each trade
+TRADE_CHARTS_FOLDER = "trade_charts"  # Folder to save trade charts
 
 # Swing detection parameters
-SWING_LOOKBACK = 5                   # Candles to look back for swing points
+SWING_LOOKBACK = 3                    # Reduced from 5 - more sensitive swing detection
+SWEEP_REJECTION_PIPS = 2              # Reduced from 3 - minimum rejection size for sweep
 
 # Debug mode - set to True to see detailed pattern detection
 DEBUG = False
 
 # Relaxed mode - set to True to allow neutral trend entries (less strict)
-RELAXED_MODE = False
+RELAXED_MODE = True                   # Enabled by default for more trading opportunities
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -141,7 +142,7 @@ def detect_liquidity_sweep(df: pd.DataFrame, current_idx: int) -> Optional[Dict]
     # Bear sweep: price makes new high then rejects
     if current['high'] > prev_highs.max():
         # Check for rejection (close below high)
-        if current['close'] < current['high'] - pips_to_price(3):
+        if current['close'] < current['high'] - pips_to_price(SWEEP_REJECTION_PIPS):
             return {
                 'type': 'bear_sweep',
                 'price': current['high'],
@@ -151,7 +152,7 @@ def detect_liquidity_sweep(df: pd.DataFrame, current_idx: int) -> Optional[Dict]
     # Bull sweep: price makes new low then rejects
     if current['low'] < prev_lows.min():
         # Check for rejection (close above low)
-        if current['close'] > current['low'] + pips_to_price(3):
+        if current['close'] > current['low'] + pips_to_price(SWEEP_REJECTION_PIPS):
             return {
                 'type': 'bull_sweep',
                 'price': current['low'],

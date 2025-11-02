@@ -12,6 +12,9 @@ This backtest system implements a strict ICT smart money strategy with the follo
 - **Higher Timeframe Trend Filter**: Only trades aligned with 1-hour trend bias
 - **Discretion Filters**: Avoids messy candles, low liquidity periods, and small FVGs
 - **Risk Management**: 1% risk per trade with position sizing based on stop-loss distance
+- **No Look-Ahead Bias**: Uses only historical data available at each point in time
+- **Realistic Leverage Limits**: Optional leverage with broker-realistic constraints (max 30x)
+- **Trade Visualization**: Automatic candlestick chart generation for each trade
 
 ## Requirements
 
@@ -35,10 +38,34 @@ STOP_LOSS_BUFFER_PIPS = 2            # Buffer beyond sweep extreme
 TARGET_MIN_R = 3.0                   # Minimum risk-reward ratio
 TARGET_MAX_R = 5.0                   # Maximum risk-reward ratio
 
+# Leverage settings (NEW)
+MAX_LEVERAGE = 30                    # Maximum leverage (realistic broker limit)
+USE_LEVERAGE = False                 # Set to True to use leverage
+
+# Chart generation (NEW)
+GENERATE_TRADE_CHARTS = True         # Generate candlestick charts for each trade
+TRADE_CHARTS_FOLDER = "trade_charts" # Folder to save trade charts
+
 # Debug and relaxed modes
 DEBUG = False                        # Set to True to see detailed pattern detection
 RELAXED_MODE = False                 # Set to True to allow neutral trend entries
 ```
+
+### New Features
+
+#### 1. Leverage Control
+- **USE_LEVERAGE = False** (default): No leverage, safest mode (1:1 position sizing)
+- **USE_LEVERAGE = True**: Enables leverage up to MAX_LEVERAGE (default 30x)
+- MAX_LEVERAGE prevents unrealistic position sizes that brokers would reject
+
+#### 2. Trade Chart Generation
+- Automatically generates candlestick charts for each trade
+- Charts show 20 candles before/after entry with marked entry/exit points
+- Includes SL/TP levels and trade info
+- Saved to `trade_charts/` folder
+- File naming: `trade_001_long_TP.png`, `trade_002_short_SL.png`, etc.
+
+See `NEW_FEATURES.md` for detailed documentation.
 
 ### Getting More Trades
 

@@ -4,6 +4,7 @@
 # Output files
 equity_curve.png
 trade_journal.csv
+trade_charts/
 
 # Python
 __pycache__/

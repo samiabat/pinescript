@@ -31,6 +31,14 @@ STOP_LOSS_BUFFER_PIPS = 2            # Buffer beyond sweep extreme
 TARGET_MIN_R = 3.0                   # Minimum risk-reward ratio
 TARGET_MAX_R = 5.0                   # Maximum risk-reward ratio
 
+# Leverage settings
+MAX_LEVERAGE = 30                    # Maximum leverage (realistic broker limit)
+USE_LEVERAGE = False                 # Set to True to use leverage
+
+# Chart generation
+GENERATE_TRADE_CHARTS = True         # Generate candlestick charts for each trade
+TRADE_CHARTS_FOLDER = "trade_charts" # Folder to save trade charts
+
 # Swing detection parameters
 SWING_LOOKBACK = 5                   # Candles to look back for swing points
 
@@ -304,7 +312,7 @@ class Trade:
         self.pnl_usd = 0
 
 def calculate_position_size(balance: float, risk_pct: float, sl_pips: float) -> float:
-    """Calculate position size based on risk and SL distance"""
+    """Calculate position size based on risk and SL distance with leverage limits"""
     # Safeguards against invalid values
     if balance <= 0 or np.isnan(balance) or np.isinf(balance):
         return 0
@@ -321,7 +329,24 @@ def calculate_position_size(balance: float, risk_pct: float, sl_pips: float) -> 
     pip_value = 0.0001
     position_size = risk_amount / (sl_pips * pip_value)
     
+    # Apply leverage limits if enabled
+    if USE_LEVERAGE:
+        # Maximum position size based on leverage
+        # Leverage = Position Size * Current Price / Balance
+        # For EURUSD around 1.1, max position = balance * max_leverage / 1.1
+        max_position_with_leverage = (balance * MAX_LEVERAGE) / 1.1
+        position_size = min(position_size, max_position_with_leverage)
+    else:
+        # No leverage: position size limited to balance (1:1)
+        # For EURUSD, this means position_size * price <= balance
+        max_position_no_leverage = balance / 1.1  # Assuming EURUSD ~1.1
+        position_size = min(position_size, max_position_no_leverage)
+    
     # Additional safeguard against unreasonably large position sizes
+    if np.isnan(position_size) or np.isinf(position_size):
+        return 0
+    
+    return position_size
     if np.isnan(position_size) or np.isinf(position_size):
         return 0
     
@@ -748,6 +773,99 @@ class ICTBacktester:
         print(f"Equity curve saved to {filename}")
         plt.close()
     
+    def generate_trade_charts(self):
+        """Generate candlestick charts for each trade with entry/exit markers"""
+        if not GENERATE_TRADE_CHARTS:
+            return
+        
+        if not self.trades:
+            print("No trades to generate charts for.")
+            return
+        
+        import os
+        # Create folder if it doesn't exist
+        if not os.path.exists(TRADE_CHARTS_FOLDER):
+            os.makedirs(TRADE_CHARTS_FOLDER)
+        
+        print(f"\nGenerating trade charts in {TRADE_CHARTS_FOLDER}/...")
+        
+        for i, trade in enumerate(self.trades, 1):
+            try:
+                # Find the trade in the dataframe
+                entry_idx = self.df[self.df['datetime'] == trade.entry_time].index[0]
+                exit_idx = self.df[self.df['datetime'] == trade.exit_time].index[0]
+                
+                # Get data window (20 candles before entry, 20 after exit)
+                start_idx = max(0, entry_idx - 20)
+                end_idx = min(len(self.df) - 1, exit_idx + 20)
+                
+                chart_data = self.df.iloc[start_idx:end_idx + 1].copy()
+                
+                # Create candlestick chart
+                fig, ax = plt.subplots(figsize=(14, 8))
+                
+                # Plot candlesticks
+                for idx, row in chart_data.iterrows():
+                    color = 'green' if row['close'] >= row['open'] else 'red'
+                    
+                    # Candle body
+                    ax.plot([idx, idx], [row['low'], row['high']], color='black', linewidth=0.5)
+                    body_height = abs(row['close'] - row['open'])
+                    body_bottom = min(row['open'], row['close'])
+                    ax.add_patch(plt.Rectangle((idx - 0.3, body_bottom), 0.6, body_height, 
+                                               facecolor=color, edgecolor='black', linewidth=0.5))
+                
+                # Mark entry point
+                entry_marker_color = 'blue' if trade.direction == 'long' else 'purple'
+                ax.scatter(entry_idx, trade.entry_price, color=entry_marker_color, s=200, 
+                          marker='^' if trade.direction == 'long' else 'v', 
+                          label=f'Entry ({trade.direction.upper()})', zorder=5, edgecolors='black', linewidths=2)
+                
+                # Mark exit point
+                exit_marker_color = 'green' if trade.result == 'TP' else 'red' if trade.result == 'SL' else 'orange'
+                ax.scatter(exit_idx, trade.exit_price, color=exit_marker_color, s=200, 
+                          marker='*', label=f'Exit ({trade.result})', zorder=5, edgecolors='black', linewidths=2)
+                
+                # Draw horizontal lines for SL and TP
+                ax.axhline(y=trade.stop_loss, color='red', linestyle='--', linewidth=1, alpha=0.7, label='Stop Loss')
+                ax.axhline(y=trade.take_profit, color='green', linestyle='--', linewidth=1, alpha=0.7, label='Take Profit')
+                
+                # Add trade info text
+                info_text = f"Trade #{i}\n"
+                info_text += f"Direction: {trade.direction.upper()}\n"
+                info_text += f"Entry: {trade.entry_price:.5f}\n"
+                info_text += f"Exit: {trade.exit_price:.5f}\n"
+                info_text += f"P&L: {trade.pnl_pips:.1f} pips (${trade.pnl_usd:.2f})\n"
+                info_text += f"Result: {trade.result}"
+                
+                ax.text(0.02, 0.98, info_text, transform=ax.transAxes, 
+                       fontsize=10, verticalalignment='top',
+                       bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+                
+                # Formatting
+                ax.set_xlabel('Candle Index', fontsize=12)
+                ax.set_ylabel('Price', fontsize=12)
+                ax.set_title(f'Trade #{i} - {trade.direction.upper()} - {trade.result} - {trade.entry_time}', 
+                           fontsize=14, fontweight='bold')
+                ax.legend(loc='upper right')
+                ax.grid(True, alpha=0.3)
+                
+                plt.tight_layout()
+                
+                # Save chart
+                chart_filename = f"{TRADE_CHARTS_FOLDER}/trade_{i:03d}_{trade.direction}_{trade.result}.png"
+                plt.savefig(chart_filename, dpi=150, bbox_inches='tight')
+                plt.close()
+                
+                if i % 10 == 0:
+                    print(f"  Generated {i}/{len(self.trades)} charts...")
+                    
+            except Exception as e:
+                print(f"  Warning: Could not generate chart for trade #{i}: {e}")
+                plt.close()
+        
+        print(f"Trade charts complete! Saved {len(self.trades)} charts to {TRADE_CHARTS_FOLDER}/")
+    
     def print_summary(self):
         """Print comprehensive backtest summary"""
         metrics = self.get_performance_metrics()
@@ -814,8 +932,12 @@ def main():
     # Save outputs
     backtest.save_trade_journal('trade_journal.csv')
     backtest.plot_equity_curve('equity_curve.png')
+    backtest.generate_trade_charts()
     
-    print("\nBacktest complete! Check trade_journal.csv and equity_curve.png for details.")
+    if GENERATE_TRADE_CHARTS and len(backtest.trades) > 0:
+        print(f"\nBacktest complete! Check trade_journal.csv, equity_curve.png, and {TRADE_CHARTS_FOLDER}/ for details.")
+    else:
+        print("\nBacktest complete! Check trade_journal.csv and equity_curve.png for details.")
 
 if __name__ == "__main__":
     main()

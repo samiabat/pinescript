@@ -663,7 +663,19 @@ class ICTBacktester:
         metrics = self.get_performance_metrics()
         
         if not metrics:
-            print("\nNo trades executed.")
+            print("\n" + "=" * 80)
+            print("No trades executed.")
+            print("=" * 80)
+            print("\nPossible reasons:")
+            print("  • The data doesn't contain the specific ICT patterns required")
+            print("  • The strategy is very strict and requires ALL conditions to align:")
+            print("    - Liquidity sweep")
+            print("    - Market structure shift")
+            print("    - Fair value gap")
+            print("    - Trend alignment")
+            print("    - Quality filters passed")
+            print("\nTip: Use real market data with clear trends and reversals for better results.")
+            print("     The sample data is randomly generated for testing purposes only.")
             return
         
         print("\n" + "=" * 80)

@@ -25,8 +25,8 @@ LONDON_NY_START = time(7, 0)         # 07:00 UTC
 LONDON_NY_END = time(16, 0)          # 16:00 UTC
 
 # Trading parameters
-MAX_TRADES_PER_DAY = 5                # Increased from 2 to allow more opportunities
-MIN_FVG_PIPS = 5                      # Reduced from 10 for more FVG detections
+MAX_TRADES_PER_DAY = 10               # Significantly increased to allow many more opportunities
+MIN_FVG_PIPS = 3                      # Further reduced for more FVG detections (3 pips = $0.30)
 STOP_LOSS_BUFFER_PIPS = 5             # Buffer beyond sweep extreme
 TARGET_MIN_R = 3.0                    # Minimum risk-reward ratio
 TARGET_MAX_R = 5.0                    # Maximum risk-reward ratio
@@ -36,8 +36,8 @@ GENERATE_TRADE_CHARTS = True          # Generate candlestick charts for each tra
 TRADE_CHARTS_FOLDER = "trade_charts"  # Folder to save trade charts
 
 # Swing detection parameters
-SWING_LOOKBACK = 3                    # Reduced from 5 - more sensitive swing detection
-SWEEP_REJECTION_PIPS = 5              # Minimum rejection size for sweep (Gold volatility)
+SWING_LOOKBACK = 2                    # Further reduced for ultra-responsive swing detection
+SWEEP_REJECTION_PIPS = 3              # Reduced for more sweep detections (3 pips = $0.30)
 
 # Debug mode - set to True to see detailed pattern detection
 DEBUG = False

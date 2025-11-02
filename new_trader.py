@@ -305,11 +305,26 @@ class Trade:
 
 def calculate_position_size(balance: float, risk_pct: float, sl_pips: float) -> float:
     """Calculate position size based on risk and SL distance"""
+    # Safeguards against invalid values
+    if balance <= 0 or np.isnan(balance) or np.isinf(balance):
+        return 0
+    
+    if sl_pips <= 0 or np.isnan(sl_pips) or np.isinf(sl_pips):
+        return 0
+    
+    # Minimum SL must be at least 1 pip
+    sl_pips = max(sl_pips, 1.0)
+    
     risk_amount = balance * risk_pct
     # For EURUSD, 1 pip = $0.0001 per unit
     # Position size = Risk Amount / (SL in pips * pip value)
     pip_value = 0.0001
     position_size = risk_amount / (sl_pips * pip_value)
+    
+    # Additional safeguard against unreasonably large position sizes
+    if np.isnan(position_size) or np.isinf(position_size):
+        return 0
+    
     return position_size
 
 def check_trade_exit(trade: Trade, candle: pd.Series) -> bool:
@@ -401,7 +416,22 @@ class ICTBacktester:
             # Check active trade for exit
             if self.active_trade:
                 if check_trade_exit(self.active_trade, candle):
+                    # Safeguard against NaN in P&L
+                    if np.isnan(self.active_trade.pnl_usd) or np.isinf(self.active_trade.pnl_usd):
+                        print(f"WARNING: Trade #{len(self.trades) + 1} has invalid P&L (NaN/Inf), skipping balance update")
+                        self.active_trade.pnl_usd = 0  # Reset to 0 to avoid NaN propagation
+                    
                     self.balance += self.active_trade.pnl_usd
+                    
+                    # Safeguard against negative or NaN balance
+                    if self.balance < 0:
+                        print(f"WARNING: Balance went negative (${self.balance:.2f}), stopping backtest")
+                        self.balance = 0
+                    
+                    if np.isnan(self.balance) or np.isinf(self.balance):
+                        print(f"WARNING: Balance became NaN/Inf, resetting to last valid value")
+                        self.balance = self.initial_balance
+                    
                     self.trades.append(self.active_trade)
                     
                     print(f"Trade #{len(self.trades)} closed: {self.active_trade.result} "
@@ -559,6 +589,13 @@ class ICTBacktester:
             
             # Take profit 3-5x SL distance
             sl_distance = entry_price - stop_loss
+            
+            # Validate SL distance is positive
+            if sl_distance <= 0:
+                if DEBUG:
+                    print(f"  WARNING: Invalid SL distance for long trade: {sl_distance}")
+                return None
+            
             tp_distance = sl_distance * np.random.uniform(TARGET_MIN_R, TARGET_MAX_R)
             take_profit = entry_price + tp_distance
             
@@ -572,12 +609,25 @@ class ICTBacktester:
             
             # Take profit 3-5x SL distance
             sl_distance = stop_loss - entry_price
+            
+            # Validate SL distance is positive
+            if sl_distance <= 0:
+                if DEBUG:
+                    print(f"  WARNING: Invalid SL distance for short trade: {sl_distance}")
+                return None
+            
             tp_distance = sl_distance * np.random.uniform(TARGET_MIN_R, TARGET_MAX_R)
             take_profit = entry_price - tp_distance
         
         # Calculate position size
         sl_pips = price_to_pips(abs(entry_price - stop_loss))
         position_size = calculate_position_size(self.balance, RISK_PER_TRADE, sl_pips)
+        
+        # Validate position size
+        if position_size <= 0 or np.isnan(position_size) or np.isinf(position_size):
+            if DEBUG:
+                print(f"  WARNING: Invalid position size: {position_size}")
+            return None
         
         # Create trade
         trade = Trade(
@@ -597,25 +647,32 @@ class ICTBacktester:
             return {}
         
         total_trades = len(self.trades)
-        winning_trades = [t for t in self.trades if t.pnl_usd > 0]
-        losing_trades = [t for t in self.trades if t.pnl_usd < 0]
+        
+        # Filter out trades with NaN P&L
+        valid_trades = [t for t in self.trades if not np.isnan(t.pnl_usd) and not np.isinf(t.pnl_usd)]
+        winning_trades = [t for t in valid_trades if t.pnl_usd > 0]
+        losing_trades = [t for t in valid_trades if t.pnl_usd < 0]
         
         win_count = len(winning_trades)
         loss_count = len(losing_trades)
         win_rate = (win_count / total_trades * 100) if total_trades > 0 else 0
         
-        total_pnl = sum(t.pnl_usd for t in self.trades)
+        total_pnl = sum(t.pnl_usd for t in valid_trades)
         avg_win = sum(t.pnl_usd for t in winning_trades) / win_count if win_count > 0 else 0
         avg_loss = sum(t.pnl_usd for t in losing_trades) / loss_count if loss_count > 0 else 0
-        avg_pnl = total_pnl / total_trades if total_trades > 0 else 0
+        avg_pnl = total_pnl / len(valid_trades) if len(valid_trades) > 0 else 0
         
         # Calculate max drawdown
         peak = self.initial_balance
         max_dd = 0
         for eq in self.equity_curve:
-            if eq['equity'] > peak:
-                peak = eq['equity']
-            dd = (peak - eq['equity']) / peak * 100
+            equity = eq['equity']
+            # Skip NaN values
+            if np.isnan(equity) or np.isinf(equity):
+                continue
+            if equity > peak:
+                peak = equity
+            dd = (peak - equity) / peak * 100 if peak > 0 else 0
             if dd > max_dd:
                 max_dd = dd
         

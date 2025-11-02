@@ -31,10 +31,6 @@ STOP_LOSS_BUFFER_PIPS = 2            # Buffer beyond sweep extreme
 TARGET_MIN_R = 3.0                   # Minimum risk-reward ratio
 TARGET_MAX_R = 5.0                   # Maximum risk-reward ratio
 
-# Leverage settings
-MAX_LEVERAGE = 30                    # Maximum leverage (realistic broker limit)
-USE_LEVERAGE = False                 # Set to True to use leverage
-
 # Chart generation
 GENERATE_TRADE_CHARTS = True         # Generate candlestick charts for each trade
 TRADE_CHARTS_FOLDER = "trade_charts" # Folder to save trade charts
@@ -312,7 +308,7 @@ class Trade:
         self.pnl_usd = 0
 
 def calculate_position_size(balance: float, risk_pct: float, sl_pips: float) -> float:
-    """Calculate position size based on risk and SL distance with leverage limits"""
+    """Calculate position size based on risk and SL distance"""
     # Safeguards against invalid values
     if balance <= 0 or np.isnan(balance) or np.isinf(balance):
         return 0
@@ -329,24 +325,7 @@ def calculate_position_size(balance: float, risk_pct: float, sl_pips: float) -> 
     pip_value = 0.0001
     position_size = risk_amount / (sl_pips * pip_value)
     
-    # Apply leverage limits if enabled
-    if USE_LEVERAGE:
-        # Maximum position size based on leverage
-        # Leverage = Position Size * Current Price / Balance
-        # For EURUSD around 1.1, max position = balance * max_leverage / 1.1
-        max_position_with_leverage = (balance * MAX_LEVERAGE) / 1.1
-        position_size = min(position_size, max_position_with_leverage)
-    else:
-        # No leverage: position size limited to balance (1:1)
-        # For EURUSD, this means position_size * price <= balance
-        max_position_no_leverage = balance / 1.1  # Assuming EURUSD ~1.1
-        position_size = min(position_size, max_position_no_leverage)
-    
     # Additional safeguard against unreasonably large position sizes
-    if np.isnan(position_size) or np.isinf(position_size):
-        return 0
-    
-    return position_size
     if np.isnan(position_size) or np.isinf(position_size):
         return 0
     

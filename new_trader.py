@@ -754,7 +754,7 @@ class ICTBacktester:
         plt.close()
     
     def generate_trade_charts(self):
-        """Generate candlestick charts for each trade with entry/exit markers"""
+        """Generate TradingView-style candlestick charts for each trade"""
         if not GENERATE_TRADE_CHARTS:
             return
         
@@ -763,11 +763,12 @@ class ICTBacktester:
             return
         
         import os
+        from matplotlib.patches import FancyBboxPatch
         # Create folder if it doesn't exist
         if not os.path.exists(TRADE_CHARTS_FOLDER):
             os.makedirs(TRADE_CHARTS_FOLDER)
         
-        print(f"\nGenerating trade charts in {TRADE_CHARTS_FOLDER}/...")
+        print(f"\nGenerating TradingView-style trade charts in {TRADE_CHARTS_FOLDER}/...")
         
         for i, trade in enumerate(self.trades, 1):
             try:
@@ -782,118 +783,199 @@ class ICTBacktester:
                 chart_data = self.df.iloc[start_idx:end_idx + 1].copy()
                 chart_data = chart_data.reset_index(drop=True)
                 
-                # Create candlestick chart with professional trading appearance
-                fig, ax = plt.subplots(figsize=(16, 10))
+                # Create TradingView-style candlestick chart
+                fig, ax = plt.subplots(figsize=(18, 11))
                 
-                # Set dark background for professional look
-                ax.set_facecolor('#f0f0f0')
-                fig.patch.set_facecolor('white')
+                # TradingView-style background
+                ax.set_facecolor('#131722')
+                fig.patch.set_facecolor('#131722')
                 
-                # Plot candlesticks using sequential index for positioning
+                # Plot candlesticks
                 for i_plot, (idx, row) in enumerate(chart_data.iterrows()):
-                    # Bullish (green) or Bearish (red) candles
-                    color = '#26a69a' if row['close'] >= row['open'] else '#ef5350'
+                    # TradingView colors: green for bullish, red for bearish
+                    is_bullish = row['close'] >= row['open']
+                    color = '#26a69a' if is_bullish else '#ef5350'
                     
                     # Draw high-low line (wick)
-                    ax.plot([i_plot, i_plot], [row['low'], row['high']], color=color, linewidth=1.2)
+                    ax.plot([i_plot, i_plot], [row['low'], row['high']], color=color, linewidth=1.5, solid_capstyle='round')
                     
                     # Draw candle body
                     body_height = abs(row['close'] - row['open'])
                     if body_height < 0.00001:  # Doji
                         body_height = 0.00001
                     body_bottom = min(row['open'], row['close'])
-                    ax.add_patch(plt.Rectangle((i_plot - 0.35, body_bottom), 0.7, body_height, 
-                                               facecolor=color, edgecolor=color, linewidth=1))
+                    ax.add_patch(plt.Rectangle((i_plot - 0.4, body_bottom), 0.8, body_height, 
+                                               facecolor=color, edgecolor=color, linewidth=0))
                 
                 # Calculate exact position in the chart data
                 entry_pos = entry_idx - start_idx
                 exit_pos = exit_idx - start_idx
-                
-                # Get the actual candle data for precise marker placement
-                entry_candle = chart_data.iloc[entry_pos]
-                exit_candle = chart_data.iloc[exit_pos]
-                
-                # Mark entry point - position EXACTLY at the entry candle's close (where trade triggers)
-                entry_marker_color = '#2196F3' if trade.direction == 'long' else '#9C27B0'
-                ax.scatter(entry_pos, trade.entry_price, color=entry_marker_color, s=350, 
-                          marker='^' if trade.direction == 'long' else 'v', 
-                          label=f'Entry: {trade.direction.upper()} @ {trade.entry_price:.5f}', 
-                          zorder=10, edgecolors='white', linewidths=2.5)
-                
-                # Mark exit point - position EXACTLY at the exit candle
-                exit_marker_color = '#4CAF50' if trade.result == 'TP' else '#F44336' if trade.result == 'SL' else '#FF9800'
-                ax.scatter(exit_pos, trade.exit_price, color=exit_marker_color, s=350, 
-                          marker='*', label=f'Exit: {trade.result} @ {trade.exit_price:.5f}', 
-                          zorder=10, edgecolors='white', linewidths=2.5)
-                
-                # Draw horizontal lines for SL and TP with better styling
-                ax.axhline(y=trade.stop_loss, color='#F44336', linestyle='--', linewidth=2, 
-                          alpha=0.8, label=f'Stop Loss: {trade.stop_loss:.5f}')
-                ax.axhline(y=trade.take_profit, color='#4CAF50', linestyle='--', linewidth=2, 
-                          alpha=0.8, label=f'Take Profit: {trade.take_profit:.5f}')
-                
-                # Add trade info text box with entry reason
-                info_text = f"TRADE #{i} | {trade.direction.upper()}\n"
-                info_text += f"{'─' * 30}\n"
-                info_text += f"Entry: {trade.entry_time}\n"
-                info_text += f"Price: {trade.entry_price:.5f}\n\n"
-                info_text += f"Exit: {trade.exit_time}\n"
-                info_text += f"Price: {trade.exit_price:.5f}\n"
-                info_text += f"Result: {trade.result}\n\n"
-                info_text += f"P&L: {trade.pnl_pips:.1f} pips\n"
-                info_text += f"USD: ${trade.pnl_usd:.2f}\n\n"
-                info_text += f"ICT ENTRY SIGNALS:\n"
-                info_text += f"✓ Liquidity Sweep\n"
-                info_text += f"✓ Market Structure Shift\n"
-                info_text += f"✓ Fair Value Gap Entry"
-                
-                ax.text(0.01, 0.99, info_text, transform=ax.transAxes, 
-                       fontsize=10, verticalalignment='top', family='monospace',
-                       bbox=dict(boxstyle='round,pad=0.8', facecolor='#fffacd', 
-                                alpha=0.95, edgecolor='#333', linewidth=2))
-                
-                # Professional formatting with timestamps and prices
-                ax.set_xlabel('Time (15-Minute Candles)', fontsize=13, fontweight='bold')
-                ax.set_ylabel('Price', fontsize=13, fontweight='bold')
-                ax.set_title(f'ICT Trade Analysis - Trade #{i} - {trade.direction.upper()} - {trade.result}', 
-                           fontsize=16, fontweight='bold', pad=20)
-                
-                # Set x-axis to show timestamps (every 10-15 candles depending on data length)
                 num_candles = len(chart_data)
-                tick_interval = max(5, num_candles // 12)  # Show ~12 ticks
+                
+                # TradingView-style SL/TP ZONES (rectangles instead of lines)
+                # SL Zone - Red transparent rectangle
+                sl_zone_height = abs(trade.entry_price - trade.stop_loss) * 0.3  # Zone height
+                if trade.direction == 'long':
+                    sl_bottom = trade.stop_loss - sl_zone_height / 2
+                else:
+                    sl_bottom = trade.stop_loss - sl_zone_height / 2
+                
+                sl_zone = FancyBboxPatch((0, sl_bottom), num_candles, sl_zone_height,
+                                        boxstyle="round,pad=0", 
+                                        facecolor='#F44336', alpha=0.15,
+                                        edgecolor='#F44336', linewidth=2.5, linestyle='--',
+                                        zorder=1)
+                ax.add_patch(sl_zone)
+                
+                # TP Zone - Green transparent rectangle
+                tp_zone_height = abs(trade.entry_price - trade.take_profit) * 0.3
+                if trade.direction == 'long':
+                    tp_bottom = trade.take_profit - tp_zone_height / 2
+                else:
+                    tp_bottom = trade.take_profit - tp_zone_height / 2
+                
+                tp_zone = FancyBboxPatch((0, tp_bottom), num_candles, tp_zone_height,
+                                        boxstyle="round,pad=0",
+                                        facecolor='#4CAF50', alpha=0.15,
+                                        edgecolor='#4CAF50', linewidth=2.5, linestyle='--',
+                                        zorder=1)
+                ax.add_patch(tp_zone)
+                
+                # TradingView-style LONG/SHORT position markers
+                if trade.direction == 'long':
+                    # LONG position - Blue upward triangle with "LONG" label
+                    entry_marker_color = '#2962FF'
+                    marker_shape = '^'
+                    position_text = 'LONG'
+                    text_y_offset = -0.015 * (chart_data['high'].max() - chart_data['low'].min())
+                else:
+                    # SHORT position - Purple downward triangle with "SHORT" label
+                    entry_marker_color = '#9C27B0'
+                    marker_shape = 'v'
+                    position_text = 'SHORT'
+                    text_y_offset = 0.015 * (chart_data['high'].max() - chart_data['low'].min())
+                
+                # Entry marker - TradingView style
+                ax.scatter(entry_pos, trade.entry_price, color=entry_marker_color, s=500, 
+                          marker=marker_shape, zorder=15, edgecolors='white', linewidths=3)
+                
+                # Add "LONG" or "SHORT" text near entry
+                ax.text(entry_pos, trade.entry_price + text_y_offset, position_text, 
+                       color='white', fontsize=12, fontweight='bold', ha='center',
+                       bbox=dict(boxstyle='round,pad=0.5', facecolor=entry_marker_color, 
+                                alpha=0.9, edgecolor='white', linewidth=2), zorder=16)
+                
+                # Exit marker - TradingView style with result indicator
+                if trade.result == 'TP':
+                    exit_color = '#00E676'  # Bright green for TP
+                    exit_label = 'TAKE PROFIT'
+                elif trade.result == 'SL':
+                    exit_color = '#FF1744'  # Bright red for SL
+                    exit_label = 'STOP LOSS'
+                else:
+                    exit_color = '#FFC107'  # Amber for timeout
+                    exit_label = 'TIMEOUT'
+                
+                ax.scatter(exit_pos, trade.exit_price, color=exit_color, s=500, 
+                          marker='X', zorder=15, edgecolors='white', linewidths=3)
+                
+                # Add exit label
+                exit_text_y_offset = -text_y_offset
+                ax.text(exit_pos, trade.exit_price + exit_text_y_offset, exit_label, 
+                       color='white', fontsize=11, fontweight='bold', ha='center',
+                       bbox=dict(boxstyle='round,pad=0.5', facecolor=exit_color, 
+                                alpha=0.9, edgecolor='white', linewidth=2), zorder=16)
+                
+                # Central SL and TP price lines
+                ax.axhline(y=trade.stop_loss, color='#F44336', linestyle=':', linewidth=2, 
+                          alpha=0.7, zorder=2)
+                ax.axhline(y=trade.take_profit, color='#4CAF50', linestyle=':', linewidth=2, 
+                          alpha=0.7, zorder=2)
+                
+                # Add SL/TP labels on the right
+                ax.text(num_candles + 1, trade.stop_loss, f'SL: {trade.stop_loss:.5f}', 
+                       color='#F44336', fontsize=11, fontweight='bold', va='center',
+                       bbox=dict(boxstyle='round,pad=0.4', facecolor='#131722', 
+                                alpha=0.8, edgecolor='#F44336', linewidth=2))
+                ax.text(num_candles + 1, trade.take_profit, f'TP: {trade.take_profit:.5f}', 
+                       color='#4CAF50', fontsize=11, fontweight='bold', va='center',
+                       bbox=dict(boxstyle='round,pad=0.4', facecolor='#131722', 
+                                alpha=0.8, edgecolor='#4CAF50', linewidth=2))
+                
+                # Enhanced info box - TradingView style
+                pnl_color = '#00E676' if trade.pnl_usd > 0 else '#FF1744'
+                pnl_sign = '+' if trade.pnl_usd > 0 else ''
+                
+                info_text = f"{'█' * 35}\n"
+                info_text += f"  TRADE #{i:03d} - {position_text} POSITION\n"
+                info_text += f"{'█' * 35}\n\n"
+                info_text += f"  ENTRY  \n"
+                info_text += f"  Time:  {str(trade.entry_time)[11:16]}\n"
+                info_text += f"  Price: {trade.entry_price:.5f}\n\n"
+                info_text += f"  EXIT - {trade.result}\n"
+                info_text += f"  Time:  {str(trade.exit_time)[11:16]}\n"
+                info_text += f"  Price: {trade.exit_price:.5f}\n\n"
+                info_text += f"  P&L\n"
+                info_text += f"  Pips:  {pnl_sign}{trade.pnl_pips:.1f}\n"
+                info_text += f"  USD:   {pnl_sign}${abs(trade.pnl_usd):.2f}\n\n"
+                info_text += f"  ICT SIGNALS:\n"
+                info_text += f"  ✓ Liquidity Sweep\n"
+                info_text += f"  ✓ MSS Confirmed\n"
+                info_text += f"  ✓ FVG Entry Zone"
+                
+                ax.text(0.015, 0.98, info_text, transform=ax.transAxes, 
+                       fontsize=11, verticalalignment='top', family='monospace',
+                       color='white', weight='bold',
+                       bbox=dict(boxstyle='round,pad=1', facecolor='#1E2A3A', 
+                                alpha=0.95, edgecolor=pnl_color, linewidth=3),
+                       zorder=20)
+                
+                # Title - TradingView style
+                title_color = '#00E676' if trade.pnl_usd > 0 else '#FF1744'
+                ax.set_title(f'ICT Smart Money Strategy | Trade #{i} | {position_text} | Result: {trade.result} | P&L: {pnl_sign}${abs(trade.pnl_usd):.2f}', 
+                           fontsize=17, fontweight='bold', pad=20, color='white',
+                           bbox=dict(boxstyle='round,pad=0.8', facecolor='#1E2A3A', 
+                                    alpha=0.9, edgecolor=title_color, linewidth=3))
+                
+                # X-axis: TIME TIMESTAMPS (not candle index)
+                tick_interval = max(5, num_candles // 15)  # ~15 time labels
                 tick_positions = list(range(0, num_candles, tick_interval))
-                if tick_positions[-1] != num_candles - 1:
+                if num_candles - 1 not in tick_positions:
                     tick_positions.append(num_candles - 1)
                 
-                # Format time as HH:MM for better readability
+                # Extract time in format: HH:MM
                 tick_labels = []
                 for pos in tick_positions:
-                    dt_str = str(chart_data.iloc[pos]['datetime'])
-                    # Extract time portion (HH:MM)
-                    if len(dt_str) >= 16:
-                        tick_labels.append(dt_str[11:16])  # HH:MM
-                    else:
-                        tick_labels.append(dt_str[-5:])
+                    dt_val = chart_data.iloc[pos]['datetime']
+                    time_str = str(dt_val)[11:16]  # Extract HH:MM
+                    tick_labels.append(time_str)
                 
                 ax.set_xticks(tick_positions)
-                ax.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=11)
+                ax.set_xticklabels(tick_labels, rotation=0, ha='center', fontsize=12, 
+                                  color='#B2B5BE', weight='bold')
+                ax.set_xlabel('Time (15-Minute Timeframe)', fontsize=14, fontweight='bold', 
+                             color='white', labelpad=10)
                 
-                # Format y-axis to show price levels clearly
+                # Y-axis: PRICE
                 ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:.5f}'))
-                ax.tick_params(axis='y', labelsize=11)
+                ax.tick_params(axis='y', labelsize=12, colors='#B2B5BE', labelcolor='#B2B5BE')
+                ax.set_ylabel('Price', fontsize=14, fontweight='bold', color='white', labelpad=10)
                 
-                # Add grid for better readability
-                ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+                # TradingView-style grid
+                ax.grid(True, alpha=0.1, linestyle='-', linewidth=0.5, color='#363A45')
+                ax.set_axisbelow(True)
                 
-                # Legend with better positioning
-                ax.legend(loc='upper right', fontsize=10, framealpha=0.95, 
-                         edgecolor='#333', fancybox=True)
+                # Remove top and right spines for cleaner look
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+                ax.spines['left'].set_color('#363A45')
+                ax.spines['bottom'].set_color('#363A45')
                 
                 plt.tight_layout()
                 
-                # Save chart with higher DPI for better quality
+                # Save chart
                 chart_filename = f"{TRADE_CHARTS_FOLDER}/trade_{i:03d}_{trade.direction}_{trade.result}.png"
-                plt.savefig(chart_filename, dpi=200, bbox_inches='tight', facecolor='white')
+                plt.savefig(chart_filename, dpi=220, bbox_inches='tight', facecolor='#131722')
                 plt.close()
                 
                 if i % 10 == 0:

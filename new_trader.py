@@ -774,85 +774,125 @@ class ICTBacktester:
                 entry_idx = self.df[self.df['datetime'] == trade.entry_time].index[0]
                 exit_idx = self.df[self.df['datetime'] == trade.exit_time].index[0]
                 
-                # Get data window (20 candles before entry, 20 after exit)
-                start_idx = max(0, entry_idx - 20)
-                end_idx = min(len(self.df) - 1, exit_idx + 20)
+                # Get data window (40 candles before entry, 40 after exit for better context)
+                start_idx = max(0, entry_idx - 40)
+                end_idx = min(len(self.df) - 1, exit_idx + 40)
                 
                 chart_data = self.df.iloc[start_idx:end_idx + 1].copy()
                 chart_data = chart_data.reset_index(drop=True)
                 
-                # Create candlestick chart
-                fig, ax = plt.subplots(figsize=(14, 8))
+                # Create candlestick chart with professional trading appearance
+                fig, ax = plt.subplots(figsize=(16, 10))
+                
+                # Set dark background for professional look
+                ax.set_facecolor('#f0f0f0')
+                fig.patch.set_facecolor('white')
                 
                 # Plot candlesticks using sequential index for positioning
                 for i_plot, (idx, row) in enumerate(chart_data.iterrows()):
-                    color = 'green' if row['close'] >= row['open'] else 'red'
+                    # Bullish (green) or Bearish (red) candles
+                    color = '#26a69a' if row['close'] >= row['open'] else '#ef5350'
                     
-                    # Candle body
-                    ax.plot([i_plot, i_plot], [row['low'], row['high']], color='black', linewidth=0.5)
+                    # Draw high-low line (wick)
+                    ax.plot([i_plot, i_plot], [row['low'], row['high']], color=color, linewidth=1.2)
+                    
+                    # Draw candle body
                     body_height = abs(row['close'] - row['open'])
+                    if body_height < 0.00001:  # Doji
+                        body_height = 0.00001
                     body_bottom = min(row['open'], row['close'])
-                    ax.add_patch(plt.Rectangle((i_plot - 0.3, body_bottom), 0.6, body_height, 
-                                               facecolor=color, edgecolor='black', linewidth=0.5))
+                    ax.add_patch(plt.Rectangle((i_plot - 0.35, body_bottom), 0.7, body_height, 
+                                               facecolor=color, edgecolor=color, linewidth=1))
                 
-                # Calculate position in the chart data
+                # Calculate exact position in the chart data
                 entry_pos = entry_idx - start_idx
                 exit_pos = exit_idx - start_idx
                 
-                # Mark entry point - position at actual candle where entry occurs
-                entry_marker_color = 'blue' if trade.direction == 'long' else 'purple'
-                ax.scatter(entry_pos, trade.entry_price, color=entry_marker_color, s=250, 
+                # Get the actual candle data for precise marker placement
+                entry_candle = chart_data.iloc[entry_pos]
+                exit_candle = chart_data.iloc[exit_pos]
+                
+                # Mark entry point - position EXACTLY at the entry candle's close (where trade triggers)
+                entry_marker_color = '#2196F3' if trade.direction == 'long' else '#9C27B0'
+                ax.scatter(entry_pos, trade.entry_price, color=entry_marker_color, s=350, 
                           marker='^' if trade.direction == 'long' else 'v', 
-                          label=f'Entry ({trade.direction.upper()})', zorder=5, edgecolors='black', linewidths=2)
+                          label=f'Entry: {trade.direction.upper()} @ {trade.entry_price:.5f}', 
+                          zorder=10, edgecolors='white', linewidths=2.5)
                 
-                # Mark exit point
-                exit_marker_color = 'green' if trade.result == 'TP' else 'red' if trade.result == 'SL' else 'orange'
-                ax.scatter(exit_pos, trade.exit_price, color=exit_marker_color, s=250, 
-                          marker='*', label=f'Exit ({trade.result})', zorder=5, edgecolors='black', linewidths=2)
+                # Mark exit point - position EXACTLY at the exit candle
+                exit_marker_color = '#4CAF50' if trade.result == 'TP' else '#F44336' if trade.result == 'SL' else '#FF9800'
+                ax.scatter(exit_pos, trade.exit_price, color=exit_marker_color, s=350, 
+                          marker='*', label=f'Exit: {trade.result} @ {trade.exit_price:.5f}', 
+                          zorder=10, edgecolors='white', linewidths=2.5)
                 
-                # Draw horizontal lines for SL and TP
-                ax.axhline(y=trade.stop_loss, color='red', linestyle='--', linewidth=1, alpha=0.7, label='Stop Loss')
-                ax.axhline(y=trade.take_profit, color='green', linestyle='--', linewidth=1, alpha=0.7, label='Take Profit')
+                # Draw horizontal lines for SL and TP with better styling
+                ax.axhline(y=trade.stop_loss, color='#F44336', linestyle='--', linewidth=2, 
+                          alpha=0.8, label=f'Stop Loss: {trade.stop_loss:.5f}')
+                ax.axhline(y=trade.take_profit, color='#4CAF50', linestyle='--', linewidth=2, 
+                          alpha=0.8, label=f'Take Profit: {trade.take_profit:.5f}')
                 
-                # Add trade info text with entry reason
-                info_text = f"Trade #{i}\n"
-                info_text += f"Direction: {trade.direction.upper()}\n"
-                info_text += f"Entry: {trade.entry_price:.5f}\n"
-                info_text += f"Exit: {trade.exit_price:.5f}\n"
-                info_text += f"P&L: {trade.pnl_pips:.1f} pips (${trade.pnl_usd:.2f})\n"
+                # Add trade info text box with entry reason
+                info_text = f"TRADE #{i} | {trade.direction.upper()}\n"
+                info_text += f"{'─' * 30}\n"
+                info_text += f"Entry: {trade.entry_time}\n"
+                info_text += f"Price: {trade.entry_price:.5f}\n\n"
+                info_text += f"Exit: {trade.exit_time}\n"
+                info_text += f"Price: {trade.exit_price:.5f}\n"
                 info_text += f"Result: {trade.result}\n\n"
-                info_text += f"Entry Reason:\n"
-                info_text += f"• Liquidity Sweep detected\n"
-                info_text += f"• MSS confirmed\n"
-                info_text += f"• FVG retrace entry"
+                info_text += f"P&L: {trade.pnl_pips:.1f} pips\n"
+                info_text += f"USD: ${trade.pnl_usd:.2f}\n\n"
+                info_text += f"ICT ENTRY SIGNALS:\n"
+                info_text += f"✓ Liquidity Sweep\n"
+                info_text += f"✓ Market Structure Shift\n"
+                info_text += f"✓ Fair Value Gap Entry"
                 
-                ax.text(0.02, 0.98, info_text, transform=ax.transAxes, 
-                       fontsize=9, verticalalignment='top',
-                       bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+                ax.text(0.01, 0.99, info_text, transform=ax.transAxes, 
+                       fontsize=10, verticalalignment='top', family='monospace',
+                       bbox=dict(boxstyle='round,pad=0.8', facecolor='#fffacd', 
+                                alpha=0.95, edgecolor='#333', linewidth=2))
                 
-                # Formatting with time labels on x-axis
-                ax.set_xlabel('Time', fontsize=12)
-                ax.set_ylabel('Price', fontsize=12)
-                ax.set_title(f'Trade #{i} - {trade.direction.upper()} - {trade.result} - {trade.entry_time}', 
-                           fontsize=14, fontweight='bold')
+                # Professional formatting with timestamps and prices
+                ax.set_xlabel('Time (15-Minute Candles)', fontsize=13, fontweight='bold')
+                ax.set_ylabel('Price', fontsize=13, fontweight='bold')
+                ax.set_title(f'ICT Trade Analysis - Trade #{i} - {trade.direction.upper()} - {trade.result}', 
+                           fontsize=16, fontweight='bold', pad=20)
                 
-                # Set x-axis to show timestamps
-                tick_positions = list(range(0, len(chart_data), max(1, len(chart_data) // 8)))
-                if tick_positions[-1] != len(chart_data) - 1:
-                    tick_positions.append(len(chart_data) - 1)
+                # Set x-axis to show timestamps (every 10-15 candles depending on data length)
+                num_candles = len(chart_data)
+                tick_interval = max(5, num_candles // 12)  # Show ~12 ticks
+                tick_positions = list(range(0, num_candles, tick_interval))
+                if tick_positions[-1] != num_candles - 1:
+                    tick_positions.append(num_candles - 1)
                 
-                tick_labels = [str(chart_data.iloc[pos]['datetime'])[5:16] for pos in tick_positions]  # Show MM-DD HH:MM
+                # Format time as HH:MM for better readability
+                tick_labels = []
+                for pos in tick_positions:
+                    dt_str = str(chart_data.iloc[pos]['datetime'])
+                    # Extract time portion (HH:MM)
+                    if len(dt_str) >= 16:
+                        tick_labels.append(dt_str[11:16])  # HH:MM
+                    else:
+                        tick_labels.append(dt_str[-5:])
+                
                 ax.set_xticks(tick_positions)
-                ax.set_xticklabels(tick_labels, rotation=45, ha='right')
+                ax.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=11)
                 
-                ax.legend(loc='upper right')
-                ax.grid(True, alpha=0.3)
+                # Format y-axis to show price levels clearly
+                ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:.5f}'))
+                ax.tick_params(axis='y', labelsize=11)
+                
+                # Add grid for better readability
+                ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+                
+                # Legend with better positioning
+                ax.legend(loc='upper right', fontsize=10, framealpha=0.95, 
+                         edgecolor='#333', fancybox=True)
                 
                 plt.tight_layout()
                 
-                # Save chart
+                # Save chart with higher DPI for better quality
                 chart_filename = f"{TRADE_CHARTS_FOLDER}/trade_{i:03d}_{trade.direction}_{trade.result}.png"
-                plt.savefig(chart_filename, dpi=150, bbox_inches='tight')
+                plt.savefig(chart_filename, dpi=200, bbox_inches='tight', facecolor='white')
                 plt.close()
                 
                 if i % 10 == 0:

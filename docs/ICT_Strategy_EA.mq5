@@ -11,17 +11,17 @@
 //--- Input Parameters
 input group "=== Risk Management ==="
 input double   InpRiskPercent = 1.5;          // Risk per trade (%)
-input int      InpMaxTradesPerDay = 10;       // Max trades per day
+input int      InpMaxTradesPerDay = 40;       // Max trades per day (matching Python)
 input double   InpMaxDailyLoss = 5.0;         // Max daily loss (%)
 input double   InpMinBalance = 100.0;         // Minimum balance threshold
 
 input group "=== ICT Parameters ==="
-input double   InpMinFVGPips = 3.0;           // Minimum FVG size (pips)
-input double   InpSweepRejectionPips = 1.0;   // Sweep rejection (pips)
+input double   InpMinFVGPips = 2.0;           // Minimum FVG size (pips) - matching Python
+input double   InpSweepRejectionPips = 0.5;   // Sweep rejection (pips) - matching Python
 input double   InpStopLossBufferPips = 2.0;   // Stop loss buffer (pips)
 input double   InpTargetMinR = 3.0;           // Minimum R:R ratio
 input double   InpTargetMaxR = 5.0;           // Maximum R:R ratio
-input int      InpFVGConfirmCandles = 1;      // FVG confirmation candles
+input int      InpFVGConfirmCandles = 0;      // FVG confirmation candles (0 = immediate entry)
 
 input group "=== Trading Sessions (UTC) ==="
 input int      InpLondonOpenHour = 7;         // London open hour
@@ -111,14 +111,15 @@ void OnTick()
    // Update daily counters
    UpdateDailyCounters();
    
-   // Check if we have an open position
+   // Check if we have an open position - ONLY ONE POSITION ALLOWED (like Python)
    if(PositionSelect(_Symbol))
    {
+      // Position exists, don't look for new entries
       ManageOpenPosition();
       return;
    }
    
-   // Check if we can open new trade
+   // No position exists, check if we can open new trade
    if(!CanOpenNewTrade())
       return;
    
@@ -425,9 +426,8 @@ void CheckEntrySignals()
       if(!fvg.isValid)
          continue;
       
-      // Check FVG confirmation
-      if(InpFVGConfirmCandles > 0 && fvg.barIndex < InpFVGConfirmCandles)
-         continue;
+      // FVG confirmation: With 0 confirmation (like Python default), we trade immediately
+      // The check is skipped when InpFVGConfirmCandles = 0
       
       // Check if FVG type matches sweep type
       string expectedFVG = (g_recentSweeps[i].type == "bull_sweep") ? "bullish" : "bearish";
@@ -526,34 +526,61 @@ void OpenTrade(string direction, SweepData &sweep, FVGData &fvg)
       return;
    }
    
-   // Prepare trade request
+   // Prepare trade request - USE PENDING ORDER like Python simulation
    MqlTradeRequest request = {};
    MqlTradeResult result = {};
    
-   request.action = TRADE_ACTION_DEAL;
+   // Use LIMIT order to enter at FVG level (matching Python's entry logic)
+   request.action = TRADE_ACTION_PENDING;
    request.symbol = _Symbol;
    request.volume = lotSize;
-   request.type = (direction == "bullish") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
-   request.price = (direction == "bullish") ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   
+   // For bullish, BUY_LIMIT below market; for bearish, SELL_LIMIT above market
+   // But since FVG bottom/top might be near current price, we use BUY_STOP/SELL_STOP
+   // Actually, let's check if price needs to come back to FVG or is already there
+   double currentPrice = (direction == "bullish") ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   
+   // Check if we should use LIMIT (price needs to come to us) or STOP (price needs to continue)
+   if(direction == "bullish")
+   {
+      // Bullish: enter at FVG bottom
+      if(entry < currentPrice)
+         request.type = ORDER_TYPE_BUY_LIMIT;  // Price needs to come down to FVG
+      else
+         request.type = ORDER_TYPE_BUY_STOP;   // Price already below, needs to come up
+   }
+   else
+   {
+      // Bearish: enter at FVG top
+      if(entry > currentPrice)
+         request.type = ORDER_TYPE_SELL_LIMIT;  // Price needs to come up to FVG
+      else
+         request.type = ORDER_TYPE_SELL_STOP;   // Price already above, needs to come down
+   }
+   
+   request.price = entry;  // Enter at FVG level, not market
    request.sl = stopLoss;
    request.tp = takeProfit;
    request.deviation = InpSlippage;
    request.magic = InpMagicNumber;
    request.comment = InpTradeComment;
+   request.type_time = ORDER_TIME_GTC;  // Good till cancelled
+   request.type_filling = ORDER_FILLING_FOK;  // Fill or kill
    
    // Send order
    if(OrderSend(request, result))
    {
-      if(result.retcode == TRADE_RETCODE_DONE)
+      if(result.retcode == TRADE_RETCODE_DONE || result.retcode == TRADE_RETCODE_PLACED)
       {
-         Print("Trade opened successfully: ", direction);
-         Print("Entry: ", request.price, ", SL: ", stopLoss, ", TP: ", takeProfit);
+         Print("Order placed successfully: ", direction);
+         Print("Entry price: ", entry, ", SL: ", stopLoss, ", TP: ", takeProfit);
          Print("Lot size: ", lotSize, ", SL pips: ", slPips);
+         Print("Order type: ", EnumToString(request.type));
          g_tradesOpenedToday++;
       }
       else
       {
-         Print("Trade failed. Retcode: ", result.retcode, ", ", result.comment);
+         Print("Order failed. Retcode: ", result.retcode, ", ", result.comment);
       }
    }
    else

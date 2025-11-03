@@ -1,0 +1,78 @@
+# Python Requirements for Grok Optimized Strategy
+
+## Core Dependencies
+
+# Data manipulation and analysis
+pandas>=1.5.0
+numpy>=1.23.0
+
+# Technical analysis
+ta-lib>=0.4.0
+pandas-ta>=0.3.14b
+
+# Backtesting frameworks
+backtrader>=1.9.76.123
+# Alternative: backtesting.py
+# backtesting>=0.3.3
+
+# MT5 Integration (Windows only, or with Wine)
+MetaTrader5>=5.0.0
+
+# Visualization
+matplotlib>=3.6.0
+seaborn>=0.12.0
+plotly>=5.11.0
+
+# Additional utilities
+scipy>=1.9.0
+scikit-learn>=1.1.0  # For ML-based optimizations if needed
+
+## Optional Dependencies
+
+# For API connections (if needed)
+requests>=2.28.0
+
+# For database storage
+# sqlalchemy>=1.4.0
+# pymysql>=1.0.0
+
+# For configuration management
+pyyaml>=6.0
+
+# For logging
+loguru>=0.6.0
+
+## Installation
+
+```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# On Windows:
+venv\Scripts\activate
+# On Linux/Mac:
+source venv/bin/activate
+
+# Install requirements
+pip install -r requirements.txt
+```
+
+## Notes
+
+- **TA-Lib**: May require additional system-level installation
+  - Windows: Download wheel from https://www.lfd.uci.edu/~gohlke/pythonlibs/#ta-lib
+  - Linux: `sudo apt-get install ta-lib`
+  - Mac: `brew install ta-lib`
+
+- **MetaTrader5**: Only works on Windows or with Wine on Linux/Mac
+
+- Update versions as needed for compatibility with your system
+
+## Verification
+
+After installation, verify with:
+
+```bash
+python -c "import pandas; import numpy; import matplotlib; print('Core packages installed successfully')"
+```

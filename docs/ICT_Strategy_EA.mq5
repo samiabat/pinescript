@@ -47,6 +47,7 @@ datetime g_currentDay = 0;
 
 //--- Constants for FVG validation
 const double DISPLACEMENT_CANDLE_MIN_SIZE_RATIO = 0.5;  // Displacement candle must be >= 50% of minGapPips
+const int LIQUIDITY_SWEEP_LOOKBACK_BARS = 20;  // Number of bars to look back for sweep detection
 
 //--- Structures
 struct SweepData
@@ -288,13 +289,13 @@ SweepData DetectLiquiditySweep()
    double currentClose = iClose(_Symbol, _Period, 1);
    double currentOpen = iOpen(_Symbol, _Period, 1);
    
-   // Find previous highs and lows (20 bars lookback) - matching Python
+   // Find previous highs and lows - matching Python
    // Python: df.iloc[idx-20:idx]['high'] gives bars from (idx-20) to (idx-1), 20 bars total
-   // MQL5: Loop from bar 2 to bar 21 gives 20 bars (excluding current bar 1)
+   // MQL5: Loop from bar 2 to bar (1 + LIQUIDITY_SWEEP_LOOKBACK_BARS) gives 20 bars (excluding current bar)
    double prevHigh = 0;
    double prevLow = DBL_MAX;
    
-   for(int i = 2; i <= 21; i++)  // bars 2-21: 20 bars lookback excluding current bar
+   for(int i = 2; i <= 1 + LIQUIDITY_SWEEP_LOOKBACK_BARS; i++)  // 20 bars lookback
    {
       double high = iHigh(_Symbol, _Period, i);
       double low = iLow(_Symbol, _Period, i);
@@ -341,6 +342,20 @@ SweepData DetectLiquiditySweep()
 }
 
 //+------------------------------------------------------------------+
+//| Validate displacement candle for FVG                             |
+//+------------------------------------------------------------------+
+bool ValidateDisplacementCandle(double open, double close, double high, double low, bool isBullish, double minGapPips)
+{
+   // Check candle direction matches expected
+   bool directionValid = isBullish ? (close > open) : (close < open);
+   
+   // Check candle has significant size
+   bool sizeValid = (high - low) >= minGapPips * DISPLACEMENT_CANDLE_MIN_SIZE_RATIO;
+   
+   return directionValid && sizeValid;
+}
+
+//+------------------------------------------------------------------+
 //| Detect Fair Value Gap                                            |
 //| FIXED: Now properly validates 3-candle pattern with displacement |
 //+------------------------------------------------------------------+
@@ -373,10 +388,7 @@ FVGData DetectFVG()
       if(gap >= minGapPips)
       {
          // Validate displacement candle (c2) - should be bullish and strong
-         bool isDisplacementValid = (c2_close > c2_open) && 
-                                     (c2_high - c2_low) >= minGapPips * DISPLACEMENT_CANDLE_MIN_SIZE_RATIO;
-         
-         if(isDisplacementValid)
+         if(ValidateDisplacementCandle(c2_open, c2_close, c2_high, c2_low, true, minGapPips))
          {
             fvg.isValid = true;
             fvg.type = "bullish";
@@ -394,10 +406,7 @@ FVGData DetectFVG()
       if(gap >= minGapPips)
       {
          // Validate displacement candle (c2) - should be bearish and strong
-         bool isDisplacementValid = (c2_close < c2_open) && 
-                                     (c2_high - c2_low) >= minGapPips * DISPLACEMENT_CANDLE_MIN_SIZE_RATIO;
-         
-         if(isDisplacementValid)
+         if(ValidateDisplacementCandle(c2_open, c2_close, c2_high, c2_low, false, minGapPips))
          {
             fvg.isValid = true;
             fvg.type = "bearish";
@@ -429,8 +438,12 @@ bool DetectMSS(SweepData &sweep, int currentBar)
    //          currentBar is current bar (typically bar 1)
    //          We check bars BETWEEN sweep and current (bars 4, 3, 2, 1)
    
+   // Example: If sweep happened at bar 5, and we're checking from bar 1:
+   //   - currentBar (1) < sweep.barIndex (5) = true, so we proceed
+   //   - Loop checks bars 4, 3, 2, 1 (all bars AFTER the sweep)
+   //   - This is correct because smaller indices are more recent bars
    if(currentBar >= sweep.barIndex)
-      return false;  // No candles after sweep yet
+      return false;  // No candles after sweep yet (currentBar must be < sweep.barIndex)
    
    // For bearish sweep, check if price made lower low AFTER the sweep
    // This confirms bearish structure shift

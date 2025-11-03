@@ -234,9 +234,6 @@ python ict_trader.py
 **Python Backtest Shows**: 513,418% return  
 **Realistic Expectation**: 10-30% annually (if profitable)
 
-**Python Backtest Shows**: 513,418% return  
-**Realistic Expectation**: 10-30% annually (if profitable)
-
 **Why the Difference?**
 - Oversimplified cost modeling
 - Perfect execution assumptions

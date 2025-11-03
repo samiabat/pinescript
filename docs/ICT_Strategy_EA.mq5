@@ -33,6 +33,14 @@ input group "=== Trend Detection ==="
 input int      InpTrendLookback = 32;         // Trend lookback candles
 input bool     InpRelaxedMode = true;         // Allow trading without trend
 
+input group "=== Quality Filters ==="
+input bool     InpEnableATRFilter = true;     // Enable ATR volatility filter
+input int      InpATRPeriod = 14;             // ATR period for volatility
+input double   InpMinATRMultiplier = 1.0;     // Minimum ATR multiplier for FVG
+input bool     InpEnableKillZoneFilter = false; // Use strict ICT kill zones only
+input int      InpMaxSweepAgeBars = 15;       // Max bars since sweep (0=disabled)
+input double   InpMinCandleBodyPips = 1.0;    // Minimum displacement candle body size (pips)
+
 input group "=== Advanced Settings ==="
 input int      InpMagicNumber = 12345;        // EA Magic Number
 input string   InpTradeComment = "ICT_EA";    // Trade comment
@@ -44,6 +52,7 @@ datetime g_lastBarTime = 0;
 int g_tradesOpenedToday = 0;
 double g_dailyPnL = 0.0;
 datetime g_currentDay = 0;
+int g_atrHandle = INVALID_HANDLE;  // ATR indicator handle
 
 //--- Constants for FVG validation
 const double DISPLACEMENT_CANDLE_MIN_SIZE_RATIO = 0.5;  // Displacement candle must be >= 50% of minGapPips
@@ -84,6 +93,18 @@ int OnInit()
    Print("Risk per trade: ", InpRiskPercent, "%");
    Print("Max trades per day: ", InpMaxTradesPerDay);
    
+   // Initialize ATR indicator if filter enabled
+   if(InpEnableATRFilter)
+   {
+      g_atrHandle = iATR(_Symbol, _Period, InpATRPeriod);
+      if(g_atrHandle == INVALID_HANDLE)
+      {
+         Print("Failed to create ATR indicator handle");
+         return(INIT_FAILED);
+      }
+      Print("ATR Filter enabled with period: ", InpATRPeriod);
+   }
+   
    // Initialize arrays
    ArrayResize(g_recentSweeps, 0);
    
@@ -91,6 +112,11 @@ int OnInit()
    g_tradesOpenedToday = 0;
    g_dailyPnL = 0.0;
    g_currentDay = TimeCurrent();
+   
+   if(InpEnableKillZoneFilter)
+      Print("Strict ICT Kill Zone filtering enabled");
+   if(InpMaxSweepAgeBars > 0)
+      Print("Maximum sweep age: ", InpMaxSweepAgeBars, " bars");
    
    return(INIT_SUCCEEDED);
 }
@@ -100,6 +126,10 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
+   // Release ATR indicator handle
+   if(g_atrHandle != INVALID_HANDLE)
+      IndicatorRelease(g_atrHandle);
+   
    Print("ICT Strategy EA Deinitialized. Reason: ", reason);
 }
 
@@ -216,18 +246,21 @@ bool IsTradingSession()
    // New York AM Kill Zone: 12:00-15:00 UTC (most active: 13:30-14:30)
    // New York PM Kill Zone: 18:00-21:00 UTC
    
-   // London session (7 AM - 4 PM UTC) - matching Python
+   // If strict kill zone filter is enabled, only trade during high-liquidity periods
+   if(InpEnableKillZoneFilter)
+   {
+      bool inLondonKillZone = (currentHour >= 7 && currentHour < 10);
+      bool inNYAMKillZone = (currentHour >= 12 && currentHour < 15);
+      bool inNYPMKillZone = (currentHour >= 18 && currentHour < 21);
+      return (inLondonKillZone || inNYAMKillZone || inNYPMKillZone);
+   }
+   
+   // Default: broader session filtering (matching Python)
+   // London session (7 AM - 4 PM UTC)
    bool inLondon = (currentHour >= InpLondonOpenHour && currentHour < InpLondonCloseHour);
    
-   // NY session (12 PM - 9 PM UTC) - matching Python  
+   // NY session (12 PM - 9 PM UTC)
    bool inNY = (currentHour >= InpNYOpenHour && currentHour < InpNYCloseHour);
-   
-   // Optional: Add more restrictive ICT kill zone filtering
-   // For better results, consider trading only during high-liquidity periods:
-   // bool inLondonKillZone = (currentHour >= 7 && currentHour < 10);
-   // bool inNYAMKillZone = (currentHour >= 12 && currentHour < 15);
-   // bool inNYPMKillZone = (currentHour >= 18 && currentHour < 21);
-   // return (inLondonKillZone || inNYAMKillZone || inNYPMKillZone);
    
    return (inLondon || inNY);
 }
@@ -351,7 +384,66 @@ bool ValidateDisplacementCandle(double open, double close, double high, double l
    // Check candle has significant size (minGapPrice is already in price units)
    bool sizeValid = (high - low) >= minGapPrice * DISPLACEMENT_CANDLE_MIN_SIZE_RATIO;
    
-   return directionValid && sizeValid;
+   // Check candle body size (quality filter)
+   bool bodySizeValid = ValidateCandleBodySize(open, close);
+   
+   return directionValid && sizeValid && bodySizeValid;
+}
+
+//+------------------------------------------------------------------+
+//| Get current ATR value                                            |
+//+------------------------------------------------------------------+
+double GetATR()
+{
+   if(g_atrHandle == INVALID_HANDLE || !InpEnableATRFilter)
+      return 0;
+   
+   double atrBuffer[];
+   ArraySetAsSeries(atrBuffer, true);
+   
+   if(CopyBuffer(g_atrHandle, 0, 0, 1, atrBuffer) <= 0)
+      return 0;
+   
+   return atrBuffer[0];
+}
+
+//+------------------------------------------------------------------+
+//| Validate FVG size against ATR (dynamic filter)                  |
+//+------------------------------------------------------------------+
+bool ValidateFVGAgainstATR(double gapSize)
+{
+   if(!InpEnableATRFilter)
+      return true;  // Filter disabled, allow all
+   
+   double atr = GetATR();
+   if(atr <= 0)
+      return true;  // ATR not available, allow
+   
+   // FVG must be at least InpMinATRMultiplier times the ATR
+   double minGapSize = atr * InpMinATRMultiplier;
+   return (gapSize >= minGapSize);
+}
+
+//+------------------------------------------------------------------+
+//| Validate displacement candle body size                           |
+//+------------------------------------------------------------------+
+bool ValidateCandleBodySize(double open, double close)
+{
+   double bodySize = MathAbs(close - open);
+   double minBodySize = InpMinCandleBodyPips * _Point * 10;
+   return (bodySize >= minBodySize);
+}
+
+//+------------------------------------------------------------------+
+//| Validate sweep age (not too old)                                |
+//+------------------------------------------------------------------+
+bool ValidateSweepAge(int sweepBarIndex, int currentBar)
+{
+   if(InpMaxSweepAgeBars <= 0)
+      return true;  // Filter disabled
+   
+   int age = sweepBarIndex - currentBar;
+   return (age <= InpMaxSweepAgeBars);
 }
 
 //+------------------------------------------------------------------+
@@ -386,6 +478,10 @@ FVGData DetectFVG()
       double gap = c3_low - c1_high;
       if(gap >= minGapPips)
       {
+         // Quality filter: Validate FVG size against ATR
+         if(!ValidateFVGAgainstATR(gap))
+            return fvg;  // FVG too small relative to volatility
+         
          // Validate displacement candle (c2) - should be bullish and strong
          if(ValidateDisplacementCandle(c2_open, c2_close, c2_high, c2_low, true, minGapPips))
          {
@@ -404,6 +500,10 @@ FVGData DetectFVG()
       double gap = c1_low - c3_high;
       if(gap >= minGapPips)
       {
+         // Quality filter: Validate FVG size against ATR
+         if(!ValidateFVGAgainstATR(gap))
+            return fvg;  // FVG too small relative to volatility
+         
          // Validate displacement candle (c2) - should be bearish and strong
          if(ValidateDisplacementCandle(c2_open, c2_close, c2_high, c2_low, false, minGapPips))
          {
@@ -500,6 +600,13 @@ void CheckEntrySignals()
       if(!g_recentSweeps[i].isValid)
          continue;
       
+      // === QUALITY FILTER: Sweep Age ===
+      // Don't trade sweeps that are too old
+      if(!ValidateSweepAge(g_recentSweeps[i].barIndex, 1))
+      {
+         continue;  // Sweep too old, skip
+      }
+      
       // === CONFLUENCE 1: Trend Alignment (if not in relaxed mode) ===
       string trend = DetectTrend();
       if(!InpRelaxedMode && trend != "neutral" && g_recentSweeps[i].trend != trend)
@@ -518,6 +625,7 @@ void CheckEntrySignals()
       
       // === CONFLUENCE 3: Fair Value Gap (FVG) ===
       // Must have valid FVG with proper displacement candle
+      // ATR and body size filters are applied inside DetectFVG()
       FVGData fvg = DetectFVG();
       if(!fvg.isValid)
       {
@@ -537,13 +645,14 @@ void CheckEntrySignals()
       // === CONFLUENCE 5: Session Validation (already checked in CanOpenNewTrade) ===
       // Trading session check is done before calling this function
       
-      // === ALL CONFLUENCES MET ===
-      // 1. ✓ Liquidity Sweep detected
+      // === ALL CONFLUENCES MET + QUALITY FILTERS PASSED ===
+      // 1. ✓ Liquidity Sweep detected (with wick rejection)
       // 2. ✓ Trend alignment (or relaxed mode)
       // 3. ✓ Market Structure Shift confirmed
-      // 4. ✓ Fair Value Gap identified with displacement validation
+      // 4. ✓ Fair Value Gap identified (with displacement + ATR + body size validation)
       // 5. ✓ FVG direction matches sweep direction
-      // 6. ✓ Trading session validated
+      // 6. ✓ Trading session validated (kill zones if enabled)
+      // 7. ✓ Sweep age validated (not too old)
       
       Print("=== ENTRY SIGNAL CONFIRMED ===");
       Print("All ICT confluences met:");

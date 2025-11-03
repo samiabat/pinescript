@@ -343,13 +343,13 @@ SweepData DetectLiquiditySweep()
 //+------------------------------------------------------------------+
 //| Validate displacement candle for FVG                             |
 //+------------------------------------------------------------------+
-bool ValidateDisplacementCandle(double open, double close, double high, double low, bool isBullish, double minGapPips)
+bool ValidateDisplacementCandle(double open, double close, double high, double low, bool isBullish, double minGapPrice)
 {
    // Check candle direction matches expected
    bool directionValid = isBullish ? (close > open) : (close < open);
    
-   // Check candle has significant size
-   bool sizeValid = (high - low) >= minGapPips * DISPLACEMENT_CANDLE_MIN_SIZE_RATIO;
+   // Check candle has significant size (minGapPrice is already in price units)
+   bool sizeValid = (high - low) >= minGapPrice * DISPLACEMENT_CANDLE_MIN_SIZE_RATIO;
    
    return directionValid && sizeValid;
 }

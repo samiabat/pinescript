@@ -198,19 +198,33 @@ bool CanOpenNewTrade()
 }
 
 //+------------------------------------------------------------------+
-//| Check if current time is within trading session                  |
+//| Check if current time is within trading session (ICT Kill Zones) |
+//| ENHANCED: More explicit ICT session filtering                    |
 //+------------------------------------------------------------------+
 bool IsTradingSession()
 {
    MqlDateTime dt;
    TimeToStruct(TimeCurrent(), dt);
    int currentHour = dt.hour;
+   int currentMinute = dt.minute;
    
-   // London session
+   // ICT Kill Zones (UTC time):
+   // London Kill Zone: 07:00-10:00 UTC (most active: 08:00-09:00)
+   // New York AM Kill Zone: 12:00-15:00 UTC (most active: 13:30-14:30)
+   // New York PM Kill Zone: 18:00-21:00 UTC
+   
+   // London session (7 AM - 4 PM UTC) - matching Python
    bool inLondon = (currentHour >= InpLondonOpenHour && currentHour < InpLondonCloseHour);
    
-   // NY session
+   // NY session (12 PM - 9 PM UTC) - matching Python  
    bool inNY = (currentHour >= InpNYOpenHour && currentHour < InpNYCloseHour);
+   
+   // Optional: Add more restrictive ICT kill zone filtering
+   // For better results, consider trading only during high-liquidity periods:
+   // bool inLondonKillZone = (currentHour >= 7 && currentHour < 10);
+   // bool inNYAMKillZone = (currentHour >= 12 && currentHour < 15);
+   // bool inNYPMKillZone = (currentHour >= 18 && currentHour < 21);
+   // return (inLondonKillZone || inNYAMKillZone || inNYPMKillZone);
    
    return (inLondon || inNY);
 }
@@ -256,6 +270,7 @@ string DetectTrend()
 
 //+------------------------------------------------------------------+
 //| Detect liquidity sweep                                           |
+//| ENHANCED: More thorough validation of sweep conditions           |
 //+------------------------------------------------------------------+
 SweepData DetectLiquiditySweep()
 {
@@ -268,12 +283,13 @@ SweepData DetectLiquiditySweep()
    double currentHigh = iHigh(_Symbol, _Period, 1);
    double currentLow = iLow(_Symbol, _Period, 1);
    double currentClose = iClose(_Symbol, _Period, 1);
+   double currentOpen = iOpen(_Symbol, _Period, 1);
    
-   // Find previous highs and lows (20 bars lookback)
+   // Find previous highs and lows (20 bars lookback) - matching Python
    double prevHigh = 0;
    double prevLow = DBL_MAX;
    
-   for(int i = 2; i <= 20; i++)
+   for(int i = 2; i <= 21; i++)  // bars 2-21 (matching Python's idx-20:idx which excludes current)
    {
       double high = iHigh(_Symbol, _Period, i);
       double low = iLow(_Symbol, _Period, i);
@@ -283,25 +299,37 @@ SweepData DetectLiquiditySweep()
    
    double rejectionPips = InpSweepRejectionPips * _Point * 10;
    
-   // Bearish sweep (high broken but rejected)
+   // Bearish sweep: high broken but price rejected (closed below high with rejection)
+   // This indicates liquidity grab at the high followed by bearish reversal
    if(currentHigh > prevHigh && currentClose < (currentHigh - rejectionPips))
    {
-      sweep.isValid = true;
-      sweep.type = "bear_sweep";
-      sweep.price = currentHigh;
-      sweep.time = iTime(_Symbol, _Period, 1);
-      sweep.barIndex = 1;
-      sweep.trend = DetectTrend();
+      // Additional validation: ensure it's a wick rejection, not just a bearish candle
+      double wickSize = currentHigh - MathMax(currentOpen, currentClose);
+      if(wickSize >= rejectionPips)  // Significant upper wick confirms rejection
+      {
+         sweep.isValid = true;
+         sweep.type = "bear_sweep";
+         sweep.price = currentHigh;
+         sweep.time = iTime(_Symbol, _Period, 1);
+         sweep.barIndex = 1;
+         sweep.trend = DetectTrend();
+      }
    }
-   // Bullish sweep (low broken but rejected)
+   // Bullish sweep: low broken but price rejected (closed above low with rejection)
+   // This indicates liquidity grab at the low followed by bullish reversal
    else if(currentLow < prevLow && currentClose > (currentLow + rejectionPips))
    {
-      sweep.isValid = true;
-      sweep.type = "bull_sweep";
-      sweep.price = currentLow;
-      sweep.time = iTime(_Symbol, _Period, 1);
-      sweep.barIndex = 1;
-      sweep.trend = DetectTrend();
+      // Additional validation: ensure it's a wick rejection, not just a bullish candle
+      double wickSize = MathMin(currentOpen, currentClose) - currentLow;
+      if(wickSize >= rejectionPips)  // Significant lower wick confirms rejection
+      {
+         sweep.isValid = true;
+         sweep.type = "bull_sweep";
+         sweep.price = currentLow;
+         sweep.time = iTime(_Symbol, _Period, 1);
+         sweep.barIndex = 1;
+         sweep.trend = DetectTrend();
+      }
    }
    
    return sweep;
@@ -309,6 +337,7 @@ SweepData DetectLiquiditySweep()
 
 //+------------------------------------------------------------------+
 //| Detect Fair Value Gap                                            |
+//| FIXED: Now properly validates 3-candle pattern with displacement |
 //+------------------------------------------------------------------+
 FVGData DetectFVG()
 {
@@ -318,38 +347,59 @@ FVGData DetectFVG()
    if(Bars(_Symbol, _Period) < 3)
       return fvg;
    
-   // Get three candles
-   double c1_high = iHigh(_Symbol, _Period, 3);
+   // Get three candles: c1 (oldest), c2 (middle/displacement), c3 (newest)
+   // In MQL5, bar indexing: 0=current, 1=previous, 2=2 bars ago, 3=3 bars ago
+   double c1_high = iHigh(_Symbol, _Period, 3);  // Bar 3 (oldest)
    double c1_low = iLow(_Symbol, _Period, 3);
-   double c3_high = iHigh(_Symbol, _Period, 1);
+   double c2_high = iHigh(_Symbol, _Period, 2);  // Bar 2 (displacement candle)
+   double c2_low = iLow(_Symbol, _Period, 2);
+   double c2_open = iOpen(_Symbol, _Period, 2);
+   double c2_close = iClose(_Symbol, _Period, 2);
+   double c3_high = iHigh(_Symbol, _Period, 1);  // Bar 1 (newest)
    double c3_low = iLow(_Symbol, _Period, 1);
    
    double minGapPips = InpMinFVGPips * _Point * 10;
    
-   // Bullish FVG (gap up)
+   // Bullish FVG (gap up): c3.low > c1.high (gap exists between candles)
+   // Also validate c2 is a strong bullish displacement candle
    if(c3_low > c1_high)
    {
       double gap = c3_low - c1_high;
       if(gap >= minGapPips)
       {
-         fvg.isValid = true;
-         fvg.type = "bullish";
-         fvg.bottom = c1_high;
-         fvg.top = c3_low;
-         fvg.barIndex = 1;
+         // Validate displacement candle (c2) - should be bullish and strong
+         bool isDisplacementValid = (c2_close > c2_open) && 
+                                     (c2_high - c2_low) >= minGapPips * 0.5;  // Candle body significant
+         
+         if(isDisplacementValid)
+         {
+            fvg.isValid = true;
+            fvg.type = "bullish";
+            fvg.bottom = c1_high;
+            fvg.top = c3_low;
+            fvg.barIndex = 1;
+         }
       }
    }
-   // Bearish FVG (gap down)
+   // Bearish FVG (gap down): c3.high < c1.low (gap exists between candles)
+   // Also validate c2 is a strong bearish displacement candle
    else if(c3_high < c1_low)
    {
       double gap = c1_low - c3_high;
       if(gap >= minGapPips)
       {
-         fvg.isValid = true;
-         fvg.type = "bearish";
-         fvg.bottom = c3_high;
-         fvg.top = c1_low;
-         fvg.barIndex = 1;
+         // Validate displacement candle (c2) - should be bearish and strong
+         bool isDisplacementValid = (c2_close < c2_open) && 
+                                     (c2_high - c2_low) >= minGapPips * 0.5;  // Candle body significant
+         
+         if(isDisplacementValid)
+         {
+            fvg.isValid = true;
+            fvg.type = "bearish";
+            fvg.bottom = c3_high;
+            fvg.top = c1_low;
+            fvg.barIndex = 1;
+         }
       }
    }
    
@@ -358,30 +408,45 @@ FVGData DetectFVG()
 
 //+------------------------------------------------------------------+
 //| Detect Market Structure Shift                                    |
+//| FIXED: Now properly checks AFTER sweep for structure break       |
+//| Python logic: candles.iloc[1:]['low'].min() < candles.iloc[0]['low'] |
 //+------------------------------------------------------------------+
 bool DetectMSS(SweepData &sweep, int currentBar)
 {
    if(!sweep.isValid)
       return false;
    
-   // For bearish sweep, check if price made lower low
+   // MSS means price broke structure AFTER the sweep
+   // We need to check bars from the sweep bar up to current bar
+   // In MQL5: sweep.barIndex is the sweep bar (e.g., bar 5)
+   //          currentBar is current bar (typically bar 1)
+   //          We check bars BETWEEN sweep and current (bars 4, 3, 2, 1)
+   
+   if(currentBar >= sweep.barIndex)
+      return false;  // No candles after sweep yet
+   
+   // For bearish sweep, check if price made lower low AFTER the sweep
+   // This confirms bearish structure shift
    if(sweep.type == "bear_sweep")
    {
       double sweepLow = iLow(_Symbol, _Period, sweep.barIndex);
+      // Check all bars AFTER the sweep (smaller index = more recent)
       for(int i = sweep.barIndex - 1; i >= currentBar; i--)
       {
          if(iLow(_Symbol, _Period, i) < sweepLow)
-            return true;
+            return true;  // Found lower low - structure shifted bearish
       }
    }
-   // For bullish sweep, check if price made higher high
+   // For bullish sweep, check if price made higher high AFTER the sweep
+   // This confirms bullish structure shift
    else if(sweep.type == "bull_sweep")
    {
       double sweepHigh = iHigh(_Symbol, _Period, sweep.barIndex);
+      // Check all bars AFTER the sweep (smaller index = more recent)
       for(int i = sweep.barIndex - 1; i >= currentBar; i--)
       {
          if(iHigh(_Symbol, _Period, i) > sweepHigh)
-            return true;
+            return true;  // Found higher high - structure shifted bullish
       }
    }
    
@@ -390,6 +455,7 @@ bool DetectMSS(SweepData &sweep, int currentBar)
 
 //+------------------------------------------------------------------+
 //| Check for entry signals                                          |
+//| ENHANCED: Enforces all ICT confluences before entry             |
 //+------------------------------------------------------------------+
 void CheckEntrySignals()
 {
@@ -405,39 +471,66 @@ void CheckEntrySignals()
    // Clean old sweeps (older than 30 bars)
    CleanOldSweeps(30);
    
-   // Check existing sweeps for entry
+   // Check existing sweeps for entry - REQUIRES ALL CONFLUENCES
    for(int i = 0; i < g_sweepCount; i++)
    {
       if(!g_recentSweeps[i].isValid)
          continue;
       
+      // === CONFLUENCE 1: Trend Alignment (if not in relaxed mode) ===
       string trend = DetectTrend();
-      
-      // Skip if trend doesn't match (unless relaxed mode)
       if(!InpRelaxedMode && trend != "neutral" && g_recentSweeps[i].trend != trend)
+      {
+         // Trend doesn't match sweep - skip this sweep
          continue;
+      }
       
-      // Check for MSS
+      // === CONFLUENCE 2: Market Structure Shift (MSS) ===
+      // CRITICAL: Must have break of structure after sweep
       if(!DetectMSS(g_recentSweeps[i], 1))
+      {
+         // No MSS confirmed yet - skip this sweep
          continue;
+      }
       
-      // Check for FVG
+      // === CONFLUENCE 3: Fair Value Gap (FVG) ===
+      // Must have valid FVG with proper displacement candle
       FVGData fvg = DetectFVG();
       if(!fvg.isValid)
+      {
+         // No valid FVG - skip this sweep
          continue;
+      }
       
-      // FVG confirmation: With 0 confirmation (like Python default), we trade immediately
-      // The check is skipped when InpFVGConfirmCandles = 0
-      
-      // Check if FVG type matches sweep type
+      // === CONFLUENCE 4: FVG Type Must Match Sweep Direction ===
+      // Bullish sweep requires bullish FVG, bearish sweep requires bearish FVG
       string expectedFVG = (g_recentSweeps[i].type == "bull_sweep") ? "bullish" : "bearish";
       if(fvg.type != expectedFVG)
+      {
+         // FVG type mismatch - skip this sweep
          continue;
+      }
       
-      // Valid entry signal found
-      Print("Entry signal found: ", expectedFVG, " after ", g_recentSweeps[i].type);
+      // === CONFLUENCE 5: Session Validation (already checked in CanOpenNewTrade) ===
+      // Trading session check is done before calling this function
       
-      // Open trade
+      // === ALL CONFLUENCES MET ===
+      // 1. ✓ Liquidity Sweep detected
+      // 2. ✓ Trend alignment (or relaxed mode)
+      // 3. ✓ Market Structure Shift confirmed
+      // 4. ✓ Fair Value Gap identified with displacement validation
+      // 5. ✓ FVG direction matches sweep direction
+      // 6. ✓ Trading session validated
+      
+      Print("=== ENTRY SIGNAL CONFIRMED ===");
+      Print("All ICT confluences met:");
+      Print("  - Liquidity Sweep: ", g_recentSweeps[i].type);
+      Print("  - MSS: Confirmed");
+      Print("  - FVG Type: ", fvg.type);
+      Print("  - Trend: ", trend);
+      Print("  - Session: Active");
+      
+      // Open trade with all confluences confirmed
       OpenTrade(expectedFVG, g_recentSweeps[i], fvg);
       
       // Mark sweep as used

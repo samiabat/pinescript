@@ -210,7 +210,6 @@ bool IsTradingSession()
    MqlDateTime dt;
    TimeToStruct(TimeCurrent(), dt);
    int currentHour = dt.hour;
-   int currentMinute = dt.minute;
    
    // ICT Kill Zones (UTC time):
    // London Kill Zone: 07:00-10:00 UTC (most active: 08:00-09:00)
@@ -447,6 +446,8 @@ bool DetectMSS(SweepData &sweep, int currentBar)
    
    // For bearish sweep, check if price made lower low AFTER the sweep
    // This confirms bearish structure shift
+   // Note: We use sweepLow (the bar's low) not sweep.price (the swept high)
+   // because we need to see if structure broke to the downside
    if(sweep.type == "bear_sweep")
    {
       double sweepLow = iLow(_Symbol, _Period, sweep.barIndex);
@@ -459,6 +460,8 @@ bool DetectMSS(SweepData &sweep, int currentBar)
    }
    // For bullish sweep, check if price made higher high AFTER the sweep
    // This confirms bullish structure shift
+   // Note: We use sweepHigh (the bar's high) not sweep.price (the swept low)
+   // because we need to see if structure broke to the upside
    else if(sweep.type == "bull_sweep")
    {
       double sweepHigh = iHigh(_Symbol, _Period, sweep.barIndex);

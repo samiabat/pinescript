@@ -206,11 +206,13 @@ python ict_trader.py
 ```python
 INITIAL_BALANCE = 200.0
 RISK_PER_TRADE = 0.015        # 1.5%
-MAX_TRADES_PER_DAY = 40       # Very high - reduce for live!
+MAX_TRADES_PER_DAY = 40       # ⚠️ DANGEROUS! For backtest only. Use 5-10 for live!
 MIN_FVG_PIPS = 2.0
 TARGET_MIN_R = 3.0
 TARGET_MAX_R = 5.0
 ```
+
+⚠️ **Warning**: The Python version has `MAX_TRADES_PER_DAY = 40` which is extremely high and unsuitable for live trading. This is for backtesting demonstration only. The MT5 EA uses a safer default of 10, but even this should be reduced to 5 or less for live trading.
 
 #### MT5 EA (`ICT_Strategy_EA.mq5`)
 ```cpp

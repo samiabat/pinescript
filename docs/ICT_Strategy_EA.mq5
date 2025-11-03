@@ -573,9 +573,10 @@ double CalculatePositionSize(double slPips)
    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
    double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
    
-   double slDistance = slPips * _Point * 10;
+   // Calculate pip value per lot
    double pipValue = tickValue / tickSize * _Point;
    
+   // Calculate lot size based on risk and SL in pips
    double lotSize = riskAmount / (slPips * pipValue / _Point);
    
    // Round to symbol lot step

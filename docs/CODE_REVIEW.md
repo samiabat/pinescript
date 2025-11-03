@@ -45,6 +45,7 @@ This document provides a comprehensive review of the ICT (Inner Circle Trader) t
 
 **Red Flags:**
 1. Extraordinarily high returns (513,418.8%) - This is unrealistic for real trading
+   - **Realistic annual returns: 10-30% if profitable**
 2. Very high number of trades (1,986) suggests potential over-trading
 3. The returns indicate possible curve-fitting or lookahead bias
 

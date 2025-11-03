@@ -45,6 +45,9 @@ int g_tradesOpenedToday = 0;
 double g_dailyPnL = 0.0;
 datetime g_currentDay = 0;
 
+//--- Constants for FVG validation
+const double DISPLACEMENT_CANDLE_MIN_SIZE_RATIO = 0.5;  // Displacement candle must be >= 50% of minGapPips
+
 //--- Structures
 struct SweepData
 {
@@ -286,10 +289,12 @@ SweepData DetectLiquiditySweep()
    double currentOpen = iOpen(_Symbol, _Period, 1);
    
    // Find previous highs and lows (20 bars lookback) - matching Python
+   // Python: df.iloc[idx-20:idx]['high'] gives bars from (idx-20) to (idx-1), 20 bars total
+   // MQL5: Loop from bar 2 to bar 21 gives 20 bars (excluding current bar 1)
    double prevHigh = 0;
    double prevLow = DBL_MAX;
    
-   for(int i = 2; i <= 21; i++)  // bars 2-21 (matching Python's idx-20:idx which excludes current)
+   for(int i = 2; i <= 21; i++)  // bars 2-21: 20 bars lookback excluding current bar
    {
       double high = iHigh(_Symbol, _Period, i);
       double low = iLow(_Symbol, _Period, i);
@@ -369,7 +374,7 @@ FVGData DetectFVG()
       {
          // Validate displacement candle (c2) - should be bullish and strong
          bool isDisplacementValid = (c2_close > c2_open) && 
-                                     (c2_high - c2_low) >= minGapPips * 0.5;  // Candle body significant
+                                     (c2_high - c2_low) >= minGapPips * DISPLACEMENT_CANDLE_MIN_SIZE_RATIO;
          
          if(isDisplacementValid)
          {
@@ -390,7 +395,7 @@ FVGData DetectFVG()
       {
          // Validate displacement candle (c2) - should be bearish and strong
          bool isDisplacementValid = (c2_close < c2_open) && 
-                                     (c2_high - c2_low) >= minGapPips * 0.5;  // Candle body significant
+                                     (c2_high - c2_low) >= minGapPips * DISPLACEMENT_CANDLE_MIN_SIZE_RATIO;
          
          if(isDisplacementValid)
          {
@@ -409,7 +414,9 @@ FVGData DetectFVG()
 //+------------------------------------------------------------------+
 //| Detect Market Structure Shift                                    |
 //| FIXED: Now properly checks AFTER sweep for structure break       |
-//| Python logic: candles.iloc[1:]['low'].min() < candles.iloc[0]['low'] |
+//| Python logic: candles.iloc[1:]['low'].min() < candles.iloc[0]['low']
+//| In Python, iloc[0] is the sweep bar, iloc[1:] are bars after it
+//| In MQL5, sweep.barIndex is the sweep bar, smaller indices are newer bars
 //+------------------------------------------------------------------+
 bool DetectMSS(SweepData &sweep, int currentBar)
 {

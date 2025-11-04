@@ -337,16 +337,19 @@ if fvg_valid and barstate.isconfirmed and is_trading_session() and trades_today 
                 // Calculate entry, SL, TP
                 current_RR = get_RR_ratio()
                 
+                // Declare sl_distance_pips before conditional blocks
+                sl_distance_pips = 0.0
+                
                 if fvg_type == "bullish"
                     entry_price := fvg_bottom + pips_to_price(spread_pips)
                     sl_price := s_price - pips_to_price(buffer_pips)
-                    sl_distance_pips = price_to_pips(entry_price - sl_price)
+                    sl_distance_pips := price_to_pips(entry_price - sl_price)
                     tp_price := entry_price + pips_to_price(sl_distance_pips * current_RR)
                     signal_type := "BUY"
                 else
                     entry_price := fvg_top - pips_to_price(spread_pips)
                     sl_price := s_price + pips_to_price(buffer_pips)
-                    sl_distance_pips = price_to_pips(sl_price - entry_price)
+                    sl_distance_pips := price_to_pips(sl_price - entry_price)
                     tp_price := entry_price - pips_to_price(sl_distance_pips * current_RR)
                     signal_type := "SELL"
                 

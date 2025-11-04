@@ -255,7 +255,7 @@ if sweep_valid and barstate.isconfirmed
     // Show sweep marker
     if show_sweep_markers
         marker_color = sweep_type == "bull_sweep" ? color.green : color.red
-        marker_style = sweep_type == "bull_sweep" ? shape.triangleup : shape.triangledown
+        marker_style = sweep_type == "bull_sweep" ? label.style_triangleup : label.style_triangledown
         marker_y = sweep_type == "bull_sweep" ? low : high
         label.new(bar_index, marker_y, "S", color=marker_color, style=marker_style, textcolor=color.white, size=size.tiny)
 

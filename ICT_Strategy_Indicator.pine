@@ -226,6 +226,14 @@ var array<float> sweep_prices = array.new<float>()
 var array<string> sweep_trends = array.new<string>()
 var array<bool> sweep_used = array.new<bool>()
 
+// Arrays to track pending setups (all conditions met, waiting for entry touch)
+var array<int> pending_setup_bars = array.new<int>()
+var array<float> pending_entry_prices = array.new<float>()
+var array<float> pending_sl_prices = array.new<float>()
+var array<float> pending_tp_prices = array.new<float>()
+var array<string> pending_directions = array.new<string>()
+var array<float> pending_RR = array.new<float>()
+
 // Arrays to track active trades for outcome visualization
 var array<int> trade_entry_bars = array.new<int>()
 var array<float> trade_entry_prices = array.new<float>()
@@ -376,25 +384,91 @@ if fvg_valid and barstate.isconfirmed and is_trading_session() and trades_today 
                     continue
                 
                 used_RR := current_RR
-                show_signal := true
-                trades_today += 1
                 
-                // Store trade for outcome tracking
-                array.push(trade_entry_bars, bar_index)
-                array.push(trade_entry_prices, entry_price)
-                array.push(trade_sl_prices, sl_price)
-                array.push(trade_tp_prices, tp_price)
-                array.push(trade_directions, signal_type)
-                array.push(trade_active, true)
+                // Store as pending setup (wait for entry touch)
+                array.push(pending_setup_bars, bar_index)
+                array.push(pending_entry_prices, entry_price)
+                array.push(pending_sl_prices, sl_price)
+                array.push(pending_tp_prices, tp_price)
+                array.push(pending_directions, signal_type)
+                array.push(pending_RR, current_RR)
                 
                 if debug_logging
-                    log.info("ENTRY SIGNAL: " + signal_type + " at bar " + str.tostring(bar_index) + ", Entry: " + str.tostring(entry_price) + ", SL: " + str.tostring(sl_price) + " ($" + str.tostring(sl_distance_pips, "#.##") + " risk), TP: " + str.tostring(tp_price) + ", RR: " + str.tostring(current_RR, "#.##"))
+                    log.info("PENDING SETUP: " + signal_type + " at bar " + str.tostring(bar_index) + ", Entry: " + str.tostring(entry_price) + ", SL: " + str.tostring(sl_price) + " ($" + str.tostring(sl_distance_pips, "#.##") + " risk), TP: " + str.tostring(tp_price) + ", RR: " + str.tostring(current_RR, "#.##"))
                 
                 if show_mss_markers
                     mss_marker_y = fvg_type == "bullish" ? low : high
                     label.new(bar_index, mss_marker_y, "MSS", color=color.blue, style=label.style_circle, textcolor=color.white, size=size.tiny)
                 
                 break
+
+// ============================================================================
+// CHECK PENDING SETUPS FOR ENTRY TOUCH
+// ============================================================================
+
+// Check if price has touched any pending setup entry levels
+if array.size(pending_setup_bars) > 0 and barstate.isconfirmed
+    for i = array.size(pending_setup_bars) - 1 to 0
+        p_bar = array.get(pending_setup_bars, i)
+        p_entry = array.get(pending_entry_prices, i)
+        p_sl = array.get(pending_sl_prices, i)
+        p_tp = array.get(pending_tp_prices, i)
+        p_direction = array.get(pending_directions, i)
+        p_rr = array.get(pending_RR, i)
+        
+        // Remove if too old (30 bars without entry touch)
+        if bar_index - p_bar > 30
+            array.remove(pending_setup_bars, i)
+            array.remove(pending_entry_prices, i)
+            array.remove(pending_sl_prices, i)
+            array.remove(pending_tp_prices, i)
+            array.remove(pending_directions, i)
+            array.remove(pending_RR, i)
+            if debug_logging
+                log.info("SETUP EXPIRED: " + p_direction + " setup from bar " + str.tostring(p_bar) + " expired without entry touch")
+            continue
+        
+        // Check if entry level was touched
+        entry_touched = false
+        if p_direction == "BUY"
+            // For BUY, check if low touched or went below entry
+            entry_touched := low <= p_entry
+        else
+            // For SELL, check if high touched or went above entry
+            entry_touched := high >= p_entry
+        
+        // If entry was touched, activate the trade
+        if entry_touched
+            // Mark as active trade
+            show_signal := true
+            signal_type := p_direction
+            entry_price := p_entry
+            sl_price := p_sl
+            tp_price := p_tp
+            used_RR := p_rr
+            trades_today += 1
+            
+            // Store trade for outcome tracking
+            array.push(trade_entry_bars, bar_index)
+            array.push(trade_entry_prices, entry_price)
+            array.push(trade_sl_prices, sl_price)
+            array.push(trade_tp_prices, tp_price)
+            array.push(trade_directions, signal_type)
+            array.push(trade_active, true)
+            
+            // Remove from pending
+            array.remove(pending_setup_bars, i)
+            array.remove(pending_entry_prices, i)
+            array.remove(pending_sl_prices, i)
+            array.remove(pending_tp_prices, i)
+            array.remove(pending_directions, i)
+            array.remove(pending_RR, i)
+            
+            if debug_logging
+                log.info("ENTRY TRIGGERED: " + signal_type + " at bar " + str.tostring(bar_index) + " (setup from bar " + str.tostring(p_bar) + "), Entry: " + str.tostring(entry_price) + ", SL: " + str.tostring(sl_price) + ", TP: " + str.tostring(tp_price))
+            
+            // Only activate one setup per bar
+            break
 
 // ============================================================================
 // TRADE OUTCOME TRACKING

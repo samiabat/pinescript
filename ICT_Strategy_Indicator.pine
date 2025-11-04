@@ -11,11 +11,12 @@ max_trades_per_day = input.int(40, "Max Trades per Day", minval=1, maxval=100, g
 min_balance = input.float(100.0, "Min Balance Threshold (display)", minval=0, group="Risk Management")
 max_daily_loss_percent = input.float(5.0, "Max Daily Loss % (display)", minval=0, maxval=50, step=0.5, group="Risk Management")
 
-// ICT Parameters
-min_FVG_pips = input.float(2.0, "Minimum FVG Size (pips)", minval=0.5, maxval=50.0, step=0.1, group="ICT Parameters")
-rejection_pips = input.float(0.5, "Sweep Rejection (pips)", minval=0.1, maxval=10.0, step=0.1, group="ICT Parameters")
-buffer_pips = input.float(2.0, "Stop Loss Buffer (pips)", minval=0.1, maxval=20.0, step=0.1, group="ICT Parameters")
+// ICT Parameters (Optimized for Gold/XAUUSD)
+min_FVG_pips = input.float(2.0, "Minimum FVG Size (dollars)", minval=0.5, maxval=50.0, step=0.1, group="ICT Parameters")
+rejection_pips = input.float(0.5, "Sweep Rejection (dollars)", minval=0.1, maxval=10.0, step=0.1, group="ICT Parameters")
+buffer_pips = input.float(2.0, "Stop Loss Buffer (dollars)", minval=0.1, maxval=20.0, step=0.1, group="ICT Parameters")
 DISPLACEMENT_CANDLE_MIN_SIZE_RATIO = input.float(0.5, "Displacement Candle Min Size Ratio", minval=0.1, maxval=2.0, step=0.1, group="ICT Parameters")
+max_sl_risk = input.float(10.0, "Max SL Risk (dollars)", minval=1.0, maxval=100.0, step=1.0, group="ICT Parameters")
 
 // Risk-Reward Settings
 min_RR = input.float(3.0, "Minimum R:R", minval=1.0, maxval=10.0, step=0.1, group="Risk-Reward")
@@ -37,7 +38,7 @@ trend_lookback = input.int(32, "Trend Lookback Bars", minval=10, maxval=200, gro
 mss_lookforward_bars = input.int(30, "MSS Look-forward Bars", minval=5, maxval=100, group="MSS Detection")
 
 // Display & Debug
-spread_pips = input.float(0.6, "Spread (pips)", minval=0, maxval=10.0, step=0.1, group="Display")
+spread_pips = input.float(0.6, "Spread (dollars)", minval=0, maxval=10.0, step=0.1, group="Display")
 show_fvg_boxes = input.bool(true, "Show FVG Boxes", group="Display")
 show_sweep_markers = input.bool(true, "Show Sweep Markers", group="Display")
 show_mss_markers = input.bool(true, "Show MSS Markers", group="Display")
@@ -47,11 +48,11 @@ debug_logging = input.bool(false, "Enable Debug Logging", group="Display")
 // HELPER FUNCTIONS
 // ============================================================================
 
-// Convert pips to price
-pips_to_price(pips) => pips * 0.0001
+// Convert dollars to price for gold (1.0 = $1)
+pips_to_price(pips) => pips
 
-// Convert price to pips
-price_to_pips(price_diff) => price_diff / 0.0001
+// Convert price to dollars for gold
+price_to_pips(price_diff) => price_diff
 
 // Check if current time is in trading session
 is_trading_session() =>
@@ -353,10 +354,10 @@ if fvg_valid and barstate.isconfirmed and is_trading_session() and trades_today 
                     tp_price := entry_price - pips_to_price(sl_distance_pips * current_RR)
                     signal_type := "SELL"
                 
-                // Filter: Skip if stop loss is more than 60 pips (low quality trade)
-                if sl_distance_pips > 60
+                // Filter: Skip if stop loss risk is more than max_sl_risk (low quality trade for gold)
+                if sl_distance_pips > max_sl_risk
                     if debug_logging
-                        log.info("TRADE REJECTED: SL too large (" + str.tostring(sl_distance_pips, "#.#") + " pips > 60 pips)")
+                        log.info("TRADE REJECTED: SL too large ($" + str.tostring(sl_distance_pips, "#.##") + " > $" + str.tostring(max_sl_risk, "#.##") + ")")
                     continue
                 
                 used_RR := current_RR
@@ -372,7 +373,7 @@ if fvg_valid and barstate.isconfirmed and is_trading_session() and trades_today 
                 array.push(trade_active, true)
                 
                 if debug_logging
-                    log.info("ENTRY SIGNAL: " + signal_type + " at bar " + str.tostring(bar_index) + ", Entry: " + str.tostring(entry_price) + ", SL: " + str.tostring(sl_price) + " (" + str.tostring(sl_distance_pips, "#.#") + " pips), TP: " + str.tostring(tp_price) + ", RR: " + str.tostring(current_RR, "#.##"))
+                    log.info("ENTRY SIGNAL: " + signal_type + " at bar " + str.tostring(bar_index) + ", Entry: " + str.tostring(entry_price) + ", SL: " + str.tostring(sl_price) + " ($" + str.tostring(sl_distance_pips, "#.##") + " risk), TP: " + str.tostring(tp_price) + ", RR: " + str.tostring(current_RR, "#.##"))
                 
                 if show_mss_markers
                     mss_marker_y = fvg_type == "bullish" ? low : high
@@ -429,22 +430,19 @@ if array.size(trade_entry_bars) > 0
                 // Declare outcome_text before conditional blocks
                 outcome_text = ""
                 
-                // Build outcome text based on what happened
+                // Build outcome text based on what happened (no profit/loss amounts)
                 if tp_hit
-                    // Only show profit when TP is hit
-                    outcome_text := "TP✓\n+" + str.tostring(pnl_pips, "#.#") + " pips"
+                    outcome_text := "TP"
                 else if sl_hit
-                    // Only show loss when SL is hit
-                    outcome_text := "SL✗\n-" + str.tostring(math.abs(pnl_pips), "#.#") + " pips"
+                    outcome_text := "SL"
                 else
-                    // Time-based exit - show actual P&L
-                    outcome_text := "Exit\n" + (pnl_pips >= 0 ? "+" : "") + str.tostring(pnl_pips, "#.#") + " pips"
+                    outcome_text := "Exit"
                 
                 // Draw line from entry to exit
                 line.new(entry_bar, entry_p, exit_bar, exit_price, color=outcome_color, width=2, style=line.style_solid)
                 
-                // Add outcome label at exit
-                label.new(exit_bar, exit_price, outcome_text, color=outcome_color, textcolor=color.white, size=size.small, style=label.style_label_left)
+                // Add outcome label at exit (no pip amounts)
+                label.new(exit_bar, exit_price, outcome_text, color=outcome_color, textcolor=color.white, size=size.tiny, style=label.style_label_left)
 
 // ============================================================================
 // VISUAL DISPLAY
@@ -458,18 +456,24 @@ if fvg_valid and show_fvg_boxes and barstate.isconfirmed
 
 // Draw Entry Signal
 if show_signal
-    // Signal label with BUY/SELL text (positioned away from candles)
-    signal_color = signal_type == "BUY" ? color.new(color.green, 20) : color.new(color.red, 20)
-    signal_y = signal_type == "BUY" ? low - (high - low) * 0.3 : high + (high - low) * 0.3
-    signal_text = signal_type == "BUY" ? "BUY\n↑" : "SELL\n↓"
-    label.new(bar_index, signal_y, signal_text, color=signal_color, textcolor=color.white, style=signal_type == "BUY" ? label.style_label_up : label.style_label_down, size=size.small)
+    // Small triangle signal (green below for buy, red above for sell)
+    signal_color = signal_type == "BUY" ? color.green : color.red
+    signal_y = signal_type == "BUY" ? low : high
+    signal_style = signal_type == "BUY" ? label.style_triangleup : label.style_triangledown
+    label.new(bar_index, signal_y, "", color=signal_color, style=signal_style, size=size.tiny)
     
-    // Entry marker at the actual entry price
-    label.new(bar_index, entry_price, "E", color=color.blue, textcolor=color.white, size=size.tiny, style=label.style_circle)
+    // Entry, SL, and TP markers with small lines and text
+    // Entry line and label
+    line.new(bar_index, entry_price, bar_index + 3, entry_price, color=color.blue, width=1, style=line.style_solid)
+    label.new(bar_index + 3, entry_price, "E", color=color.blue, textcolor=color.white, size=size.tiny, style=label.style_label_left)
     
-    // SL and TP markers (smaller, positioned at price levels)
-    label.new(bar_index, sl_price, "SL", color=color.red, textcolor=color.white, size=size.tiny, style=label.style_label_left)
-    label.new(bar_index, tp_price, "TP", color=color.green, textcolor=color.white, size=size.tiny, style=label.style_label_left)
+    // SL line and label
+    line.new(bar_index, sl_price, bar_index + 3, sl_price, color=color.red, width=1, style=line.style_dashed)
+    label.new(bar_index + 3, sl_price, "SL", color=color.red, textcolor=color.white, size=size.tiny, style=label.style_label_left)
+    
+    // TP line and label
+    line.new(bar_index, tp_price, bar_index + 3, tp_price, color=color.green, width=1, style=line.style_dashed)
+    label.new(bar_index + 3, tp_price, "TP", color=color.green, textcolor=color.white, size=size.tiny, style=label.style_label_left)
 
 // ============================================================================
 // DASHBOARD DISPLAY

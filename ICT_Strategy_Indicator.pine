@@ -79,7 +79,6 @@ detect_trend() =>
     else
         recent_bars = 8
         older_bars = 8
-        lookback_total = trend_lookback
         
         // Recent highs/lows
         recent_high = ta.highest(high, recent_bars)

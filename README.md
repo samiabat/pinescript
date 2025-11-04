@@ -9,7 +9,10 @@ pinescript/
 ├── README.md                      # This file - project overview
 ├── ict_trader.py                  # Python backtest implementation
 ├── ICT_Strategy_Indicator.pine    # Pine Script v5 TradingView indicator
-├── PINESCRIPT_USAGE.md            # Pine Script usage guide
+├── ICT_Strategy.pine              # Pine Script v5 TradingView strategy (backtesting)
+├── PINESCRIPT_USAGE.md            # Pine Script indicator usage guide
+├── STRATEGY_USAGE.md              # Pine Script strategy usage guide
+├── IMPLEMENTATION_SUMMARY.md      # Implementation details
 ├── EURUSD15.csv                   # Historical EURUSD 15-minute data
 ├── equity_fixed.png               # Equity curve from Python backtest
 └── docs/                          # Complete documentation
@@ -55,7 +58,21 @@ Visual indicator for TradingView with:
 
 **See [PINESCRIPT_USAGE.md](PINESCRIPT_USAGE.md) for complete usage guide.**
 
-### 3. MetaTrader 5 Expert Advisor (`docs/ICT_Strategy_EA.mq5`)
+### 3. TradingView Pine Script v5 Strategy (`ICT_Strategy.pine`)
+
+Backtesting strategy for TradingView with:
+
+- Executes actual trades via `strategy.entry()` and `strategy.exit()`
+- Full performance metrics (win rate, profit factor, drawdown)
+- Daily loss limits and position sizing
+- Commission and slippage modeling
+- Real-time performance dashboard
+- Conservative default parameters for realistic results
+- Compatible with TradingView Strategy Tester
+
+**See [STRATEGY_USAGE.md](STRATEGY_USAGE.md) for complete backtesting guide.**
+
+### 4. MetaTrader 5 Expert Advisor (`docs/ICT_Strategy_EA.mq5`)
 
 Production-ready MT5 implementation with:
 
@@ -72,7 +89,7 @@ Production-ready MT5 implementation with:
 - FVG confirmation requirement
 - Better cost modeling
 
-### 4. Comprehensive Documentation (`docs/`)
+### 5. Comprehensive Documentation (`docs/`)
 
 Complete guides covering:
 
@@ -124,6 +141,29 @@ Complete guides covering:
    - Blue circles show Market Structure Shift confirmations
 
 **See [PINESCRIPT_USAGE.md](PINESCRIPT_USAGE.md) for detailed usage instructions.**
+
+### TradingView Strategy (Backtesting)
+
+1. **Open TradingView Pine Editor**
+   - Go to TradingView and open the Pine Editor
+
+2. **Load the Strategy**
+   - Click "New" to create a new strategy
+   - Copy contents of `ICT_Strategy.pine`
+   - Paste into the Pine Editor
+   - Click "Save" and name it (e.g., "ICT Backtest")
+
+3. **Run Backtest**
+   - Click "Add to Chart" (15-minute EURUSD recommended)
+   - Open "Strategy Tester" panel (bottom of screen)
+   - Review performance metrics, trade list, and equity curve
+
+4. **Optimize Parameters**
+   - Adjust parameters for better results
+   - Try enabling trend filter, changing R:R ratios
+   - Test different FVG minimum sizes
+
+**See [STRATEGY_USAGE.md](STRATEGY_USAGE.md) for complete backtesting guide.**
 
 ### Python Backtesting
 

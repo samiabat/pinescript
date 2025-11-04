@@ -426,16 +426,19 @@ if array.size(trade_entry_bars) > 0
                 // Determine outcome and color
                 outcome_color = tp_hit ? color.green : (sl_hit ? color.red : color.orange)
                 
+                // Declare outcome_text before conditional blocks
+                outcome_text = ""
+                
                 // Build outcome text based on what happened
                 if tp_hit
                     // Only show profit when TP is hit
-                    outcome_text = "TP✓\n+" + str.tostring(pnl_pips, "#.#") + " pips"
+                    outcome_text := "TP✓\n+" + str.tostring(pnl_pips, "#.#") + " pips"
                 else if sl_hit
                     // Only show loss when SL is hit
-                    outcome_text = "SL✗\n-" + str.tostring(math.abs(pnl_pips), "#.#") + " pips"
+                    outcome_text := "SL✗\n-" + str.tostring(math.abs(pnl_pips), "#.#") + " pips"
                 else
                     // Time-based exit - show actual P&L
-                    outcome_text = "Exit\n" + (pnl_pips >= 0 ? "+" : "") + str.tostring(pnl_pips, "#.#") + " pips"
+                    outcome_text := "Exit\n" + (pnl_pips >= 0 ? "+" : "") + str.tostring(pnl_pips, "#.#") + " pips"
                 
                 // Draw line from entry to exit
                 line.new(entry_bar, entry_p, exit_bar, exit_price, color=outcome_color, width=2, style=line.style_solid)

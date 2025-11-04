@@ -425,14 +425,23 @@ if array.size(trade_entry_bars) > 0
                 
                 // Determine outcome and color
                 outcome_color = tp_hit ? color.green : (sl_hit ? color.red : color.orange)
-                outcome_text = tp_hit ? "TP✓" : (sl_hit ? "SL✗" : "Exit")
+                
+                // Build outcome text based on what happened
+                if tp_hit
+                    // Only show profit when TP is hit
+                    outcome_text = "TP✓\n+" + str.tostring(pnl_pips, "#.#") + " pips"
+                else if sl_hit
+                    // Only show loss when SL is hit
+                    outcome_text = "SL✗\n-" + str.tostring(math.abs(pnl_pips), "#.#") + " pips"
+                else
+                    // Time-based exit - show actual P&L
+                    outcome_text = "Exit\n" + (pnl_pips >= 0 ? "+" : "") + str.tostring(pnl_pips, "#.#") + " pips"
                 
                 // Draw line from entry to exit
                 line.new(entry_bar, entry_p, exit_bar, exit_price, color=outcome_color, width=2, style=line.style_solid)
                 
-                // Add outcome label at exit with profit/loss
-                pnl_text = outcome_text + "\n" + (pnl_pips >= 0 ? "+" : "") + str.tostring(pnl_pips, "#.#") + " pips"
-                label.new(exit_bar, exit_price, pnl_text, color=outcome_color, textcolor=color.white, size=size.small, style=label.style_label_left)
+                // Add outcome label at exit
+                label.new(exit_bar, exit_price, outcome_text, color=outcome_color, textcolor=color.white, size=size.small, style=label.style_label_left)
 
 // ============================================================================
 // VISUAL DISPLAY
@@ -446,10 +455,10 @@ if fvg_valid and show_fvg_boxes and barstate.isconfirmed
 
 // Draw Entry Signal
 if show_signal
-    // Cleaner, smaller signal label (positioned away from candles)
+    // Signal label with BUY/SELL text (positioned away from candles)
     signal_color = signal_type == "BUY" ? color.new(color.green, 20) : color.new(color.red, 20)
     signal_y = signal_type == "BUY" ? low - (high - low) * 0.3 : high + (high - low) * 0.3
-    signal_text = signal_type == "BUY" ? "↑" : "↓"
+    signal_text = signal_type == "BUY" ? "BUY\n↑" : "SELL\n↓"
     label.new(bar_index, signal_y, signal_text, color=signal_color, textcolor=color.white, style=signal_type == "BUY" ? label.style_label_up : label.style_label_down, size=size.small)
     
     // Entry marker at the actual entry price

@@ -350,6 +350,12 @@ if fvg_valid and barstate.isconfirmed and is_trading_session() and trades_today 
                     tp_price := entry_price - pips_to_price(sl_distance_pips * current_RR)
                     signal_type := "SELL"
                 
+                // Filter: Skip if stop loss is more than 60 pips (low quality trade)
+                if sl_distance_pips > 60
+                    if debug_logging
+                        log.info("TRADE REJECTED: SL too large (" + str.tostring(sl_distance_pips, "#.#") + " pips > 60 pips)")
+                    continue
+                
                 used_RR := current_RR
                 show_signal := true
                 trades_today += 1
@@ -363,7 +369,7 @@ if fvg_valid and barstate.isconfirmed and is_trading_session() and trades_today 
                 array.push(trade_active, true)
                 
                 if debug_logging
-                    log.info("ENTRY SIGNAL: " + signal_type + " at bar " + str.tostring(bar_index) + ", Entry: " + str.tostring(entry_price) + ", SL: " + str.tostring(sl_price) + ", TP: " + str.tostring(tp_price) + ", RR: " + str.tostring(current_RR, "#.##"))
+                    log.info("ENTRY SIGNAL: " + signal_type + " at bar " + str.tostring(bar_index) + ", Entry: " + str.tostring(entry_price) + ", SL: " + str.tostring(sl_price) + " (" + str.tostring(sl_distance_pips, "#.#") + " pips), TP: " + str.tostring(tp_price) + ", RR: " + str.tostring(current_RR, "#.##"))
                 
                 if show_mss_markers
                     mss_marker_y = fvg_type == "bullish" ? low : high
@@ -407,6 +413,13 @@ if array.size(trade_entry_bars) > 0
                 exit_bar = bar_index
                 exit_price = tp_hit ? tp_p : (sl_hit ? sl_p : close)
                 
+                // Calculate profit/loss in pips
+                pnl_pips = 0.0
+                if direction == "BUY"
+                    pnl_pips := price_to_pips(exit_price - entry_p)
+                else
+                    pnl_pips := price_to_pips(entry_p - exit_price)
+                
                 // Determine outcome and color
                 outcome_color = tp_hit ? color.green : (sl_hit ? color.red : color.orange)
                 outcome_text = tp_hit ? "TP✓" : (sl_hit ? "SL✗" : "Exit")
@@ -414,8 +427,9 @@ if array.size(trade_entry_bars) > 0
                 // Draw line from entry to exit
                 line.new(entry_bar, entry_p, exit_bar, exit_price, color=outcome_color, width=2, style=line.style_solid)
                 
-                // Add outcome label at exit
-                label.new(exit_bar, exit_price, outcome_text, color=outcome_color, textcolor=color.white, size=size.small, style=label.style_label_left)
+                // Add outcome label at exit with profit/loss
+                pnl_text = outcome_text + "\n" + (pnl_pips >= 0 ? "+" : "") + str.tostring(pnl_pips, "#.#") + " pips"
+                label.new(exit_bar, exit_price, pnl_text, color=outcome_color, textcolor=color.white, size=size.small, style=label.style_label_left)
 
 // ============================================================================
 // VISUAL DISPLAY

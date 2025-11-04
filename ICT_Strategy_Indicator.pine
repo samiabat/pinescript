@@ -23,11 +23,11 @@ max_RR = input.float(5.0, "Maximum R:R", minval=1.0, maxval=10.0, step=0.1, grou
 use_random_RR = input.bool(true, "Use Random R:R (between min/max)", group="Risk-Reward")
 fixed_RR = input.float(3.0, "Fixed R:R (if random disabled)", minval=1.0, maxval=10.0, step=0.1, group="Risk-Reward")
 
-// Trading Sessions (UTC)
-london_open_hour = input.int(7, "London Open Hour (UTC)", minval=0, maxval=23, group="Sessions")
-london_close_hour = input.int(16, "London Close Hour (UTC)", minval=0, maxval=23, group="Sessions")
-ny_open_hour = input.int(12, "NY Open Hour (UTC)", minval=0, maxval=23, group="Sessions")
-ny_close_hour = input.int(21, "NY Close Hour (UTC)", minval=0, maxval=23, group="Sessions")
+// Trading Sessions (New York Time - adjusted from UTC)
+london_open_hour = input.int(3, "London Open Hour (NY Time)", minval=0, maxval=23, group="Sessions")
+london_close_hour = input.int(12, "London Close Hour (NY Time)", minval=0, maxval=23, group="Sessions")
+ny_open_hour = input.int(8, "NY Open Hour (NY Time)", minval=0, maxval=23, group="Sessions")
+ny_close_hour = input.int(17, "NY Close Hour (NY Time)", minval=0, maxval=23, group="Sessions")
 
 // Trend Alignment
 enable_trend_filter = input.bool(false, "Enable Trend Alignment", group="Trend Filter")
@@ -225,6 +225,14 @@ var array<float> sweep_prices = array.new<float>()
 var array<string> sweep_trends = array.new<string>()
 var array<bool> sweep_used = array.new<bool>()
 
+// Arrays to track active trades for outcome visualization
+var array<int> trade_entry_bars = array.new<int>()
+var array<float> trade_entry_prices = array.new<float>()
+var array<float> trade_sl_prices = array.new<float>()
+var array<float> trade_tp_prices = array.new<float>()
+var array<string> trade_directions = array.new<string>()
+var array<bool> trade_active = array.new<bool>()
+
 // Reset daily counters
 new_day = dayofmonth(time) != current_day
 if new_day
@@ -346,6 +354,14 @@ if fvg_valid and barstate.isconfirmed and is_trading_session() and trades_today 
                 show_signal := true
                 trades_today += 1
                 
+                // Store trade for outcome tracking
+                array.push(trade_entry_bars, bar_index)
+                array.push(trade_entry_prices, entry_price)
+                array.push(trade_sl_prices, sl_price)
+                array.push(trade_tp_prices, tp_price)
+                array.push(trade_directions, signal_type)
+                array.push(trade_active, true)
+                
                 if debug_logging
                     log.info("ENTRY SIGNAL: " + signal_type + " at bar " + str.tostring(bar_index) + ", Entry: " + str.tostring(entry_price) + ", SL: " + str.tostring(sl_price) + ", TP: " + str.tostring(tp_price) + ", RR: " + str.tostring(current_RR, "#.##"))
                 
@@ -354,6 +370,52 @@ if fvg_valid and barstate.isconfirmed and is_trading_session() and trades_today 
                     label.new(bar_index, mss_marker_y, "MSS", color=color.blue, style=label.style_circle, textcolor=color.white, size=size.tiny)
                 
                 break
+
+// ============================================================================
+// TRADE OUTCOME TRACKING
+// ============================================================================
+
+// Check active trades for TP/SL hits or time-based exit (before NY close)
+if array.size(trade_entry_bars) > 0
+    for i = array.size(trade_entry_bars) - 1 to 0
+        if array.get(trade_active, i)
+            entry_bar = array.get(trade_entry_bars, i)
+            entry_p = array.get(trade_entry_prices, i)
+            sl_p = array.get(trade_sl_prices, i)
+            tp_p = array.get(trade_tp_prices, i)
+            direction = array.get(trade_directions, i)
+            
+            // Check if trade should be closed (time-based: before NY close)
+            current_h = hour(time)
+            bars_in_trade = bar_index - entry_bar
+            should_close_time = current_h >= ny_close_hour or bars_in_trade > 30
+            
+            // Check for TP or SL hit
+            tp_hit = false
+            sl_hit = false
+            
+            if direction == "BUY"
+                tp_hit := high >= tp_p
+                sl_hit := low <= sl_p
+            else
+                tp_hit := low <= tp_p
+                sl_hit := high >= sl_p
+            
+            // Draw outcome line if trade is complete
+            if tp_hit or sl_hit or should_close_time
+                array.set(trade_active, i, false)
+                exit_bar = bar_index
+                exit_price = tp_hit ? tp_p : (sl_hit ? sl_p : close)
+                
+                // Determine outcome and color
+                outcome_color = tp_hit ? color.green : (sl_hit ? color.red : color.orange)
+                outcome_text = tp_hit ? "TP✓" : (sl_hit ? "SL✗" : "Exit")
+                
+                // Draw line from entry to exit
+                line.new(entry_bar, entry_p, exit_bar, exit_price, color=outcome_color, width=2, style=line.style_solid)
+                
+                // Add outcome label at exit
+                label.new(exit_bar, exit_price, outcome_text, color=outcome_color, textcolor=color.white, size=size.small, style=label.style_label_left)
 
 // ============================================================================
 // VISUAL DISPLAY
@@ -367,29 +429,18 @@ if fvg_valid and show_fvg_boxes and barstate.isconfirmed
 
 // Draw Entry Signal
 if show_signal
-    // Signal label
-    signal_color = signal_type == "BUY" ? color.new(color.green, 0) : color.new(color.red, 0)
-    signal_y = signal_type == "BUY" ? low : high
-    signal_text = "ICT " + signal_type + "\nRR: " + str.tostring(used_RR, "#.##")
-    label.new(bar_index, signal_y, signal_text, color=signal_color, textcolor=color.white, style=signal_type == "BUY" ? label.style_label_up : label.style_label_down, size=size.normal)
+    // Cleaner, smaller signal label (positioned away from candles)
+    signal_color = signal_type == "BUY" ? color.new(color.green, 20) : color.new(color.red, 20)
+    signal_y = signal_type == "BUY" ? low - (high - low) * 0.3 : high + (high - low) * 0.3
+    signal_text = signal_type == "BUY" ? "↑" : "↓"
+    label.new(bar_index, signal_y, signal_text, color=signal_color, textcolor=color.white, style=signal_type == "BUY" ? label.style_label_up : label.style_label_down, size=size.small)
     
-    // Entry line
-    line.new(bar_index, entry_price, bar_index + 10, entry_price, color=color.blue, width=2, style=line.style_solid)
+    // Entry marker at the actual entry price
+    label.new(bar_index, entry_price, "E", color=color.blue, textcolor=color.white, size=size.tiny, style=label.style_circle)
     
-    // SL line
-    line.new(bar_index, sl_price, bar_index + 10, sl_price, color=color.red, width=1, style=line.style_dashed)
-    
-    // TP line
-    line.new(bar_index, tp_price, bar_index + 10, tp_price, color=color.green, width=1, style=line.style_dashed)
-    
-    // Entry label
-    label.new(bar_index + 10, entry_price, "E", color=color.blue, textcolor=color.white, size=size.tiny, style=label.style_label_left)
-    
-    // SL label
-    label.new(bar_index + 10, sl_price, "SL", color=color.red, textcolor=color.white, size=size.tiny, style=label.style_label_left)
-    
-    // TP label
-    label.new(bar_index + 10, tp_price, "TP", color=color.green, textcolor=color.white, size=size.tiny, style=label.style_label_left)
+    // SL and TP markers (smaller, positioned at price levels)
+    label.new(bar_index, sl_price, "SL", color=color.red, textcolor=color.white, size=size.tiny, style=label.style_label_left)
+    label.new(bar_index, tp_price, "TP", color=color.green, textcolor=color.white, size=size.tiny, style=label.style_label_left)
 
 // ============================================================================
 // DASHBOARD DISPLAY

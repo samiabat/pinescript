@@ -74,26 +74,24 @@ get_RR_ratio() =>
 // ============================================================================
 
 detect_trend() =>
-    if bar_index < trend_lookback
-        "neutral"
-    else
-        recent_bars = 8
-        older_bars = 8
-        
-        // Recent highs/lows
-        recent_high = ta.highest(high, recent_bars)
-        recent_low = ta.lowest(low, recent_bars)
-        
-        // Older highs/lows (offset by recent_bars)
-        older_high = ta.highest(high[recent_bars], older_bars)
-        older_low = ta.lowest(low[recent_bars], older_bars)
-        
-        trend = "neutral"
+    recent_bars = 8
+    older_bars = 8
+    
+    // Recent highs/lows (called unconditionally for Pine Script consistency)
+    recent_high = ta.highest(high, recent_bars)
+    recent_low = ta.lowest(low, recent_bars)
+    
+    // Older highs/lows (offset by recent_bars)
+    older_high = ta.highest(high[recent_bars], older_bars)
+    older_low = ta.lowest(low[recent_bars], older_bars)
+    
+    trend = "neutral"
+    if bar_index >= trend_lookback
         if recent_high > older_high and recent_low > older_low
             trend := "bullish"
         else if recent_high < older_high and recent_low < older_low
             trend := "bearish"
-        trend
+    trend
 
 // ============================================================================
 // LIQUIDITY SWEEP DETECTION
@@ -104,11 +102,11 @@ detect_liquidity_sweep() =>
     sweep_price = 0.0
     sweep_valid = false
     
+    // Get 20-bar lookback range (called unconditionally for Pine Script consistency)
+    prev_high = ta.highest(high[1], 20)
+    prev_low = ta.lowest(low[1], 20)
+    
     if bar_index >= 20
-        // Get 20-bar lookback range
-        prev_high = ta.highest(high[1], 20)
-        prev_low = ta.lowest(low[1], 20)
-        
         // Bearish sweep: high breaks previous high + rejection
         wick_high = high - close
         if high > prev_high and close < high - pips_to_price(rejection_pips) and wick_high >= pips_to_price(rejection_pips)

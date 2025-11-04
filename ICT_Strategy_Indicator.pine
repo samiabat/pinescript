@@ -340,19 +340,34 @@ if fvg_valid and barstate.isconfirmed and is_trading_session() and trades_today 
                 
                 // Declare sl_distance_pips before conditional blocks
                 sl_distance_pips = 0.0
+                tp_distance = 0.0
                 
                 if fvg_type == "bullish"
                     entry_price := fvg_bottom + pips_to_price(spread_pips)
                     sl_price := s_price - pips_to_price(buffer_pips)
                     sl_distance_pips := price_to_pips(entry_price - sl_price)
-                    tp_price := entry_price + pips_to_price(sl_distance_pips * current_RR)
+                    tp_distance := sl_distance_pips * current_RR
+                    // Ensure TP is at least $10
+                    if tp_distance < 10.0
+                        tp_distance := 10.0
+                    tp_price := entry_price + pips_to_price(tp_distance)
                     signal_type := "BUY"
                 else
                     entry_price := fvg_top - pips_to_price(spread_pips)
                     sl_price := s_price + pips_to_price(buffer_pips)
                     sl_distance_pips := price_to_pips(sl_price - entry_price)
-                    tp_price := entry_price - pips_to_price(sl_distance_pips * current_RR)
+                    tp_distance := sl_distance_pips * current_RR
+                    // Ensure TP is at least $10
+                    if tp_distance < 10.0
+                        tp_distance := 10.0
+                    tp_price := entry_price - pips_to_price(tp_distance)
                     signal_type := "SELL"
+                
+                // Filter: Skip if stop loss is less than $2 (too tight)
+                if sl_distance_pips < 2.0
+                    if debug_logging
+                        log.info("TRADE REJECTED: SL too small ($" + str.tostring(sl_distance_pips, "#.##") + " < $2.00)")
+                    continue
                 
                 // Filter: Skip if stop loss risk is more than max_sl_risk (low quality trade for gold)
                 if sl_distance_pips > max_sl_risk
@@ -457,8 +472,10 @@ if fvg_valid and show_fvg_boxes and barstate.isconfirmed
 // Draw Entry Signal
 if show_signal
     // Small triangle signal (green below for buy, red above for sell)
+    // Position triangles away from wick to avoid overlap
     signal_color = signal_type == "BUY" ? color.green : color.red
-    signal_y = signal_type == "BUY" ? low : high
+    candle_range = high - low
+    signal_y = signal_type == "BUY" ? low - candle_range * 0.5 : high + candle_range * 0.5
     signal_style = signal_type == "BUY" ? label.style_triangleup : label.style_triangledown
     label.new(bar_index, signal_y, "", color=signal_color, style=signal_style, size=size.tiny)
     

@@ -1,95 +1,81 @@
+```PIVOT_CANDLE_SCALPER.mq5
 //+------------------------------------------------------------------+
-//|                                               PIVOT_CANDLE_SCALPER.mq5
+//|                                              PivotCandleScalper.mq5
 //|  Expert Advisor: PivotCandleScalper
 //|  Strategy: Daily Pivot Points + Candlestick reversal (Pin Bar / Engulfing)
-//|  Timeframe: designed for M15 (works on any timeframe/symbol incl. XAUUSD)
-//|  Author: Generated for user samiabat
+//|  Timeframe: designed for M15 but works on any timeframe/symbol
+//|  Author: Assistant (adapted & fixed compilation issues)
 //+------------------------------------------------------------------+
 #property copyright "PivotCandleScalper"
-#property version   "1.00"
+#property version   "1.01"
 #property strict
 
 #include <Trade\Trade.mqh>
 
 //------------------------------------------------------------------
-// INPUTS (external parameters)
+// Expert inputs
 //------------------------------------------------------------------
-input double LotSize            = 0.01;      // Fixed lot size (used when RiskPercent == 0)
-input double RiskPercent        = 0.5;       // Percent of balance to risk per trade (0 = disabled)
-input double StopLossPips       = 15.0;      // (Informational) default SL in pips if needed
+input double LotSize            = 0.01;      // Fixed lot size (ignored if RiskPercent > 0)
+input double RiskPercent        = 0.5;       // Percent of account balance to risk (0 = disabled)
+input double StopLossPips       = 15.0;      // Default StopLoss in pips (used only as fallback)
 input double TakeProfit1Pips    = 20.0;      // TP1 in pips
 input double TakeProfit2Pips    = 40.0;      // TP2 in pips
-input long   MagicNumber        = 202506;    // Magic number for all EA trades
-input double MaxSpread          = 30.0;      // Maximum allowed spread (in points)
-input bool   EnableTradingHours = false;     // Restrict trading to server hours?
-input int    TradeStartHour     = 0;         // Start hour (0-23)
-input int    TradeEndHour       = 23;        // End hour (0-23)
+input long   MagicNumber        = 202506;    // Magic number for EA trades
+input double MaxSpread          = 30.0;      // Max spread allowed (in points)
+input bool   EnableTradingHours = false;     // Restrict trading to certain hours?
+input int    TradeStartHour     = 0;         // Trading start hour (server time)
+input int    TradeEndHour       = 23;        // Trading end hour (server time)
+//------------------------------------------------------------------
 
-//------------------------------------------------------------------
-// GLOBALS
-//------------------------------------------------------------------
-CTrade trade;
-datetime   g_lastProcessedCandle = 0; // to avoid duplicate processing
-double     g_point=0.0;
-int        g_digits=0;
-double     g_pip=0.0;
+CTrade trade;                    // trade object (not required but included)
+datetime lastSignalTime = 0;     // to avoid processing same closed candle multiple times
 
-//------------------------------------------------------------------
-// Utility: normalize lot to broker step/min/max
-//------------------------------------------------------------------
-double NormalizeLotToStep(double lot)
+//------------------------- Utility: Lot normalization -------------------------
+double NormalizeLot(double lot)
 {
-   double minLot  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-   double maxLot  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
-   double stepLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-   if(minLot <= 0 || stepLot <= 0) return(NormalizeDouble(lot,2));
+   double minLot = SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
+   double maxLot = SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX);
+   double step   = SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
+   if(minLot <= 0 || step <= 0) // safety fallback
+      return(NormalizeDouble(lot,2));
+   // clamp range
    if(lot < minLot) lot = minLot;
    if(lot > maxLot) lot = maxLot;
-   // align to step
-   double steps = MathFloor((lot - minLot + 1e-9)/stepLot);
-   double res = minLot + steps * stepLot;
-   // if rounding caused < min or > max, clamp
-   if(res < minLot) res = minLot;
-   if(res > maxLot) res = maxLot;
-   // round safely
-   return(NormalizeDouble(res,8));
+   // quantize to step
+   double steps = MathFloor((lot - minLot)/step + 0.5);
+   double normalized = minLot + steps * step;
+   // final clamp
+   if(normalized < minLot) normalized = minLot;
+   if(normalized > maxLot) normalized = maxLot;
+   // normalize precision
+   int digits = 8;
+   return(NormalizeDouble(normalized,digits));
 }
 
-//------------------------------------------------------------------
-// Get previous daily OHLC (previous trading day bar at shift=1)
-// returns true on success
-//------------------------------------------------------------------
-bool GetPreviousDayOHLC(double &H, double &L, double &C)
+//------------------------- Previous daily OHLC -------------------------
+// Get previous completed daily OHLC (shift=1)
+bool GetPreviousDayOHLC(double &prevHigh,double &prevLow,double &prevClose)
 {
-   // CopyRates or CopyHigh/Low/Close can be used. Use CopyRates for robustness.
-   MqlRates rates[2];
-   int copied = CopyRates(_Symbol, PERIOD_D1, 1, 1, rates);
-   if(copied < 1)
-   {
-      // fallback: attempt to read using iHigh/iLow/iClose (should be same)
-      H = iHigh(_Symbol, PERIOD_D1, 1);
-      L = iLow (_Symbol, PERIOD_D1, 1);
-      C = iClose(_Symbol, PERIOD_D1, 1);
-      if(H==0 || L==0) return(false);
-      return(true);
-   }
-   H = rates[0].high;
-   L = rates[0].low;
-   C = rates[0].close;
+   double highs[], lows[], closes[];
+   // copy 1 bar starting from shift 1 (previous day)
+   if(CopyHigh(_Symbol, PERIOD_D1, 1, 1, highs) != 1) return(false);
+   if(CopyLow(_Symbol,  PERIOD_D1, 1, 1, lows)  != 1) return(false);
+   if(CopyClose(_Symbol, PERIOD_D1, 1, 1, closes) != 1) return(false);
+   prevHigh  = highs[0];
+   prevLow   = lows[0];
+   prevClose = closes[0];
    return(true);
 }
 
-//------------------------------------------------------------------
-// Calculate standard daily pivot points from previous day
-//------------------------------------------------------------------
-void CalculateDailyPivots(double &PP,double &R1,double &R2,double &S1,double &S2)
+//------------------------- Pivot calculation -------------------------
+void CalculatePivots(double &PP,double &R1,double &R2,double &S1,double &S2)
 {
    double H,L,C;
    if(!GetPreviousDayOHLC(H,L,C))
    {
-      // If cannot get previous day, attempt to compute using last D1 bar
+      // fallback: try to read with iHigh/iLow/iClose (shift 1)
       H = iHigh(_Symbol, PERIOD_D1, 1);
-      L = iLow(_Symbol, PERIOD_D1, 1);
+      L = iLow(_Symbol,  PERIOD_D1, 1);
       C = iClose(_Symbol, PERIOD_D1, 1);
    }
    PP = (H + L + C) / 3.0;
@@ -99,96 +85,93 @@ void CalculateDailyPivots(double &PP,double &R1,double &R2,double &S1,double &S2
    S2 = PP - (H - L);
 }
 
-//------------------------------------------------------------------
-// Candle helpers (single-line wrappers)
-//------------------------------------------------------------------
-double COpen(int shift)  { return(iOpen(_Symbol, Period(), shift)); }
-double CClose(int shift) { return(iClose(_Symbol, Period(), shift)); }
-double CHigh(int shift)  { return(iHigh(_Symbol, Period(), shift)); }
-double CLow(int shift)   { return(iLow(_Symbol, Period(), shift)); }
+//------------------------- Candle accessors (use _Period) -------------------------
+double CandleOpen(int shift)  { return(iOpen(_Symbol, _Period, shift)); }
+double CandleClose(int shift) { return(iClose(_Symbol,_Period, shift)); }
+double CandleHigh(int shift)  { return(iHigh(_Symbol, _Period, shift)); }
+double CandleLow(int shift)   { return(iLow(_Symbol,  _Period, shift)); }
 
-//------------------------------------------------------------------
-// Pin bar detection rules
-// - Nose/wick >= 2x body size (for direction)
-// - Opposite wick <= 30% of total candle range
-//------------------------------------------------------------------
+//------------------------- Candlestick patterns -------------------------
+// Pin Bar rules:
+//  - for bullish pin: close > open, lower wick >= 2x body, opposite wick <= 30% total range
+//  - for bearish pin: close < open, upper wick >= 2x body, opposite wick <= 30% total range
 bool IsBullishPinBar(int shift)
 {
-   double open = COpen(shift), close = CClose(shift);
-   double high = CHigh(shift), low = CLow(shift);
-   double body = MathAbs(close - open);
+   double open  = CandleOpen(shift);
+   double close = CandleClose(shift);
+   double high  = CandleHigh(shift);
+   double low   = CandleLow(shift);
+   double body  = MathAbs(close - open);
    double upperWick = high - MathMax(open, close);
    double lowerWick = MathMin(open, close) - low;
    double totalRange = high - low;
    if(totalRange <= 0.0 || body <= 0.0) return(false);
-   // bullish body
-   if(close <= open) return(false);
-   if(lowerWick < 2.0 * body) return(false); // nose/wick >= 2x body
+   if(close <= open) return(false); // must be bullish candle
+   if(lowerWick < 2.0 * body) return(false); // nose >= 2x body
    if(upperWick > 0.3 * totalRange) return(false); // opposite wick small
    return(true);
 }
 
 bool IsBearishPinBar(int shift)
 {
-   double open = COpen(shift), close = CClose(shift);
-   double high = CHigh(shift), low = CLow(shift);
-   double body = MathAbs(close - open);
+   double open  = CandleOpen(shift);
+   double close = CandleClose(shift);
+   double high  = CandleHigh(shift);
+   double low   = CandleLow(shift);
+   double body  = MathAbs(close - open);
    double upperWick = high - MathMax(open, close);
    double lowerWick = MathMin(open, close) - low;
    double totalRange = high - low;
    if(totalRange <= 0.0 || body <= 0.0) return(false);
-   // bearish body
-   if(close >= open) return(false);
-   if(upperWick < 2.0 * body) return(false);
+   if(close >= open) return(false); // must be bearish candle
+   if(upperWick < 2.0 * body) return(false); // nose >= 2x body
    if(lowerWick > 0.3 * totalRange) return(false);
    return(true);
 }
 
-//------------------------------------------------------------------
-// Engulfing detection: current candle (shift) engulfs previous (shift+1) body
-//------------------------------------------------------------------
+// Engulfing detection: current candle (shift) engulfs previous candle's body (shift+1)
 bool IsBullishEngulfing(int shift)
 {
-   double curO = COpen(shift), curC = CClose(shift);
-   double prevO = COpen(shift+1), prevC = CClose(shift+1);
-   // current must be bullish
-   if(curC <= curO) return(false);
-   double curLowBody = MathMin(curO, curC), curHighBody = MathMax(curO, curC);
-   double prevLowBody = MathMin(prevO, prevC), prevHighBody = MathMax(prevO, prevC);
+   double curO = CandleOpen(shift), curC = CandleClose(shift);
+   double prevO = CandleOpen(shift+1), prevC = CandleClose(shift+1);
+   if(curC <= curO) return(false); // current must be bullish
+   double curLowBody  = MathMin(curO, curC);
+   double curHighBody = MathMax(curO, curC);
+   double prevLowBody = MathMin(prevO, prevC);
+   double prevHighBody= MathMax(prevO, prevC);
    return(curLowBody <= prevLowBody && curHighBody >= prevHighBody);
 }
 
 bool IsBearishEngulfing(int shift)
 {
-   double curO = COpen(shift), curC = CClose(shift);
-   double prevO = COpen(shift+1), prevC = CClose(shift+1);
-   if(curC >= curO) return(false);
-   double curLowBody = MathMin(curO, curC), curHighBody = MathMax(curO, curC);
-   double prevLowBody = MathMin(prevO, prevC), prevHighBody = MathMax(prevO, prevC);
+   double curO = CandleOpen(shift), curC = CandleClose(shift);
+   double prevO = CandleOpen(shift+1), prevC = CandleClose(shift+1);
+   if(curC >= curO) return(false); // current must be bearish
+   double curLowBody  = MathMin(curO, curC);
+   double curHighBody = MathMax(curO, curC);
+   double prevLowBody = MathMin(prevO, prevC);
+   double prevHighBody= MathMax(prevO, prevC);
    return(curLowBody <= prevLowBody && curHighBody >= prevHighBody);
 }
 
-//------------------------------------------------------------------
-// Check whether any open position exists for this symbol & magic
-//------------------------------------------------------------------
-bool HasOpenPositionByMagic()
+//------------------------- Check if position exists for this symbol & magic -------------------------
+bool HasOpenPositionWithMagic()
 {
    int total = PositionsTotal();
    for(int i=0;i<total;i++)
    {
-      if(!PositionSelectByIndex(i)) continue;
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(!PositionSelectByTicket(ticket)) continue;
       string sym = PositionGetString(POSITION_SYMBOL);
-      if(sym != _Symbol) continue;
       long mag = (long)PositionGetInteger(POSITION_MAGIC);
-      if(mag == MagicNumber) return(true);
+      if(sym == _Symbol && mag == MagicNumber) return(true);
    }
    return(false);
 }
 
-//------------------------------------------------------------------
-// Place market order using MqlTradeRequest so we can set magic number
-//------------------------------------------------------------------
-bool PlaceMarketOrder(bool isBuy, double volume, double price, double sl, double tp, string comment)
+//------------------------- Send market order helper -------------------------
+bool SendMarketOrder(bool isBuy, double volume, double slPrice, string comment)
 {
    MqlTradeRequest request;
    MqlTradeResult  result;
@@ -198,36 +181,35 @@ bool PlaceMarketOrder(bool isBuy, double volume, double price, double sl, double
    request.action = TRADE_ACTION_DEAL;
    request.symbol = _Symbol;
    request.volume = volume;
-   request.price  = price;
-   request.sl     = sl;
-   request.tp     = tp;
-   request.deviation = 20;
-   request.type   = isBuy ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+   request.price  = isBuy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   request.deviation = 10;
+   request.type = isBuy ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
    request.type_filling = ORDER_FILLING_FOK;
    request.type_time = ORDER_TIME_GTC;
    request.magic = MagicNumber;
    request.comment = comment;
+   if(slPrice > 0.0) request.sl = slPrice;
+   // no TP: we'll use pending orders to close partials
 
-   if(!OrderSend(request,result))
+   bool ok = OrderSend(request, result);
+   if(!ok)
    {
-      PrintFormat("OrderSend() returned false, retcode=%d, comment=%s", result.retcode, result.comment);
+      PrintFormat("OrderSend() returned false, retcode=%d comment=%s", result.retcode, result.comment);
       return(false);
    }
-   if(result.retcode != TRADE_RETCODE_DONE)
+   if(result.retcode != TRADE_RETCODE_DONE && result.retcode != TRADE_RETCODE_DONE_REMAINDER)
    {
-      PrintFormat("Market order failed, retcode=%d, comment=%s", result.retcode, result.comment);
+      PrintFormat("Market order not completed. retcode=%d comment=%s", result.retcode, result.comment);
       return(false);
    }
-   PrintFormat("Market order placed: ticket=%I64u type=%s vol=%.2f price=%.5f sl=%.5f tp=%.5f",
-               result.order, isBuy ? "BUY":"SELL", volume, result.price, sl, tp);
+   PrintFormat("Market order placed: ticket=%I64u type=%s vol=%.2f price=%.5f",
+               result.order, isBuy ? "BUY" : "SELL", volume, request.price);
    return(true);
 }
 
-//------------------------------------------------------------------
-// Place pending limit order (to close part of a position later).
-// order_type must be ORDER_TYPE_SELL_LIMIT or ORDER_TYPE_BUY_LIMIT
-//------------------------------------------------------------------
-bool PlacePendingLimit(int order_type, double price, double volume, string comment)
+//------------------------- Send pending limit order helper -------------------------
+// order_type must be one of ORDER_TYPE_BUY_LIMIT, ORDER_TYPE_SELL_LIMIT, etc.
+bool SendPendingOrder(ENUM_ORDER_TYPE order_type, double price, double volume, datetime expiration, string comment)
 {
    MqlTradeRequest request;
    MqlTradeResult  result;
@@ -238,240 +220,241 @@ bool PlacePendingLimit(int order_type, double price, double volume, string comme
    request.symbol = _Symbol;
    request.volume = volume;
    request.price  = price;
-   request.deviation = 20;
-   request.type   = order_type;
+   request.deviation = 10;
+   request.type = order_type;
+   request.type_time = ORDER_TIME_SPECIFIED;
+   request.expiration = expiration;
    request.type_filling = ORDER_FILLING_IOC;
-   request.type_time = ORDER_TIME_GTC;
-   request.expiration = 0;
    request.magic = MagicNumber;
    request.comment = comment;
 
-   if(!OrderSend(request,result))
+   bool ok = OrderSend(request, result);
+   if(!ok)
    {
-      PrintFormat("Pending OrderSend failed, retcode=%d comment=%s", result.retcode, result.comment);
+      PrintFormat("Pending OrderSend() returned false, retcode=%d comment=%s", result.retcode, result.comment);
       return(false);
    }
-   // TRADE_RETCODE_DONE or TRADE_RETCODE_PLACED acceptable
    if(result.retcode != TRADE_RETCODE_DONE && result.retcode != TRADE_RETCODE_PLACED)
    {
-      PrintFormat("Pending order not placed: retcode=%d comment=%s", result.retcode, result.comment);
+      PrintFormat("Pending order not placed. retcode=%d comment=%s", result.retcode, result.comment);
       return(false);
    }
-   PrintFormat("Pending order placed: ticket=%I64u type=%d vol=%.2f price=%.5f", result.order, order_type, volume, price);
+   PrintFormat("Pending order placed: ticket=%I64u type=%d vol=%.2f price=%.5f", result.order, (int)order_type, volume, price);
    return(true);
 }
 
-//------------------------------------------------------------------
-// Time window check (server time)
-//------------------------------------------------------------------
+//------------------------- Trading hours check -------------------------
 bool IsWithinTradingHours()
 {
    if(!EnableTradingHours) return(true);
-   int hr = TimeHour(TimeCurrent());
+   int hour = TimeHour(TimeCurrent());
    if(TradeStartHour <= TradeEndHour)
-      return(hr >= TradeStartHour && hr <= TradeEndHour);
+      return(hour >= TradeStartHour && hour <= TradeEndHour);
    else
-      // wrap-around
-      return(hr >= TradeStartHour || hr <= TradeEndHour);
+      return(hour >= TradeStartHour || hour <= TradeEndHour); // wrap-around
 }
 
-//------------------------------------------------------------------
-// Calculate lot size by risk percent (based on SL price distance)
-// - If RiskPercent <= 0 -> use fixed LotSize
-//------------------------------------------------------------------
-double CalculateLotByRisk(double entry, double sl)
+//------------------------- Risk-based lot calculation -------------------------
+double CalculateLotByRisk(bool isBuy, double entryPrice, double slPrice)
 {
-   double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-   if(RiskPercent <= 0.0)
-      return NormalizeLotToStep(LotSize);
+   // If RiskPercent disabled, return fixed LotSize normalized
+   if(RiskPercent <= 0.0) return NormalizeLot(LotSize);
 
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   if(balance <= 0.0) return NormalizeLotToStep(LotSize);
+   if(balance <= 0.0) return NormalizeLot(LotSize);
 
-   double slDistance = MathAbs(entry - sl); // in price units
-   if(slDistance <= 0.0) return NormalizeLotToStep(LotSize);
+   double slDistance = MathAbs(entryPrice - slPrice); // price units
+   if(slDistance <= 0.0) return NormalizeLot(LotSize);
 
-   // Try to compute monetary risk per lot using SYMBOL_TRADE_TICK_VALUE and tick size
+   // try to use tick size/value
    double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   double riskMoney = balance * (RiskPercent / 100.0);
+
    if(tickSize > 0.0 && tickValue > 0.0)
    {
       double ticks = slDistance / tickSize;
       double riskPerLot = ticks * tickValue;
-      if(riskPerLot <= 0.0) return NormalizeLotToStep(LotSize);
-      double riskMoney = balance * (RiskPercent/100.0);
-      double lots = riskMoney / riskPerLot;
-      if(lots <= 0.0) return NormalizeLotToStep(LotSize);
-      return NormalizeLotToStep(lots);
+      if(riskPerLot <= 0.0) return NormalizeLot(LotSize);
+      double lot = riskMoney / riskPerLot;
+      return NormalizeLot(lot);
    }
 
-   // Fallback: approximate using contract size and point value
+   // fallback approximate calculation
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
    double contractSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE);
-   if(contractSize <= 0.0) contractSize = 100000.0; // conservative fallback
-   double valuePerPoint = contractSize * g_point;   // value per 1 price point per 1 lot (approx)
-   if(valuePerPoint <= 0.0) return NormalizeLotToStep(LotSize);
-   double points = slDistance / g_point;
-   double riskPerLotApprox = points * valuePerPoint;
-   double riskMoney = balance * (RiskPercent/100.0);
-   double lots = riskMoney / riskPerLotApprox;
-   return NormalizeLotToStep(lots);
+   if(point <= 0.0) point = _Point;
+   if(contractSize <= 0.0) contractSize = 100000.0; // typical for FX
+   double valuePerPointPerLot = contractSize * point;
+   if(valuePerPointPerLot <= 0.0) return NormalizeLot(LotSize);
+   double points = slDistance / point;
+   double riskPerLot = points * valuePerPointPerLot;
+   if(riskPerLot <= 0.0) return NormalizeLot(LotSize);
+   double lot = riskMoney / riskPerLot;
+   return NormalizeLot(lot);
 }
 
-//------------------------------------------------------------------
-// Helper: check proximity of a price to a level within threshold pips
-//------------------------------------------------------------------
-bool PriceNearLevel(double price, double level, double thresholdPips)
+//------------------------- Helper: check if price is near a level (threshold in pips) -------------------------
+bool IsPriceNearLevel(double price, double level, double thresholdPips, double pipSize)
 {
-   return(MathAbs(price - level) <= thresholdPips * g_pip);
+   double diff = MathAbs(price - level);
+   return(diff <= thresholdPips * pipSize);
 }
 
-//------------------------------------------------------------------
-// Main trade decision logic executed on new tick
-//------------------------------------------------------------------
-void CheckAndEnterTrade()
+//------------------------- Main trade decision routine -------------------------
+void CheckAndTrade()
 {
-   // trading hours
+   // respect trading hours setting
    if(!IsWithinTradingHours()) return;
 
-   // spread check (in points)
+   // check spread
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   double spreadPoints = (ask - bid) / g_point;
-   if(spreadPoints > MaxSpread)
-   {
-      //PrintFormat("Spread too wide: %.1f > %.1f", spreadPoints, MaxSpread);
-      return;
-   }
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   if(point <= 0.0) point = _Point;
+   double spreadPoints = (ask - bid) / point;
+   if(spreadPoints > MaxSpread) return; // spread too wide
 
-   // only one position per magic
-   if(HasOpenPositionByMagic()) return;
+   // only one position per symbol+magic
+   if(HasOpenPositionWithMagic()) return;
 
-   // Use the last closed candle on chart timeframe: shift=1
-   int sigShift = 1;
-   datetime cTime = iTime(_Symbol, Period(), sigShift);
-   if(cTime == 0) return;
-   if(cTime == g_lastProcessedCandle) return; // already processed
-   g_lastProcessedCandle = cTime;
+   // use the last closed candle (shift=1)
+   int signalShift = 1;
+   datetime candleCloseTime = iTime(_Symbol, _Period, signalShift);
+   if(candleCloseTime == 0) return;
+   if(candleCloseTime == lastSignalTime) return; // already processed
+   lastSignalTime = candleCloseTime;
 
-   // Calculate pivot levels from previous daily
+   // calculate daily pivots
    double PP,R1,R2,S1,S2;
-   CalculateDailyPivots(PP,R1,R2,S1,S2);
+   CalculatePivots(PP,R1,R2,S1,S2);
 
-   // current midpoint price
-   double currentPrice = (ask + bid) / 2.0;
+   // define bias: current mid price vs PP
+   double currentMid = (ask + bid) / 2.0;
+   bool bullishBias = currentMid > PP;
+   bool bearishBias = currentMid < PP;
 
-   // market bias
-   bool bullishBias = currentPrice > PP;
-   bool bearishBias = currentPrice < PP;
+   // pipSize: convert input "pips" to price units (handle 3/5 digit vs others)
+   int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   double pipSize = point * ((digits == 3 || digits == 5) ? 10.0 : 1.0);
 
-   // pip conversion already computed in OnInit
+   // proximity threshold in pips (how close candle must be to pivot level)
    double proximityPips = MathMax(3.0, StopLossPips/2.0);
 
    // detect patterns on closed candle (shift=1)
-   bool bullishPin = IsBullishPinBar(sigShift);
-   bool bearishPin = IsBearishPinBar(sigShift);
-   bool bullishEng = IsBullishEngulfing(sigShift);
-   bool bearishEng = IsBearishEngulfing(sigShift);
+   bool bullishPin = IsBullishPinBar(signalShift);
+   bool bearishPin = IsBearishPinBar(signalShift);
+   bool bullishEng = IsBullishEngulfing(signalShift);
+   bool bearishEng = IsBearishEngulfing(signalShift);
 
-   double sigOpen  = COpen(sigShift);
-   double sigClose = CClose(sigShift);
-   double sigHigh  = CHigh(sigShift);
-   double sigLow   = CLow(sigShift);
+   double sigHigh = CandleHigh(signalShift);
+   double sigLow  = CandleLow(signalShift);
+   double sigClose= CandleClose(signalShift);
 
-   // LONG CONDITIONS (bullish bias): bullish pattern at S1 or PP (pullback)
+   // ----- LONG logic -----
    if(bullishBias)
    {
       bool pattern = bullishPin || bullishEng;
-      bool nearS1 = PriceNearLevel(sigClose, S1, proximityPips) || PriceNearLevel(sigLow, S1, proximityPips);
-      bool nearPP = PriceNearLevel(sigClose, PP, proximityPips) || PriceNearLevel(sigLow, PP, proximityPips);
+      bool nearS1 = IsPriceNearLevel(sigClose, S1, proximityPips, pipSize) || IsPriceNearLevel(sigLow, S1, proximityPips, pipSize);
+      bool nearPP = IsPriceNearLevel(sigClose, PP, proximityPips, pipSize) || IsPriceNearLevel(sigLow, PP, proximityPips, pipSize);
       if(pattern && (nearS1 || nearPP))
       {
-         double entry = ask; // buy market at ask
-         // SL placed below low of signal candle (with small buffer)
-         double sl = sigLow - 3.0 * g_point;
-         // ensure SL not above entry
-         if(sl >= entry) sl = entry - MathMax(10.0 * g_point, g_pip);
-         double tp1 = entry + TakeProfit1Pips * g_pip;
-         double tp2 = entry + TakeProfit2Pips * g_pip;
-         // compute lot
-         double lot = CalculateLotByRisk(entry, sl);
-         if(lot < SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN)) lot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-         lot = NormalizeLotToStep(lot);
+         // Prepare order parameters
+         double entry = ask; // market buy will execute at ask
+         double sl    = sigLow - 3.0 * point; // SL below signal candle low with buffer
+         if(sl <= 0) sl = entry - StopLossPips * pipSize; // fallback
+         double tp1   = entry + TakeProfit1Pips * pipSize;
+         double tp2   = entry + TakeProfit2Pips * pipSize;
+
+         double lot = CalculateLotByRisk(true, entry, sl);
+         double minVol = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+         if(lot < minVol) lot = minVol;
+         lot = NormalizeLot(lot);
          if(lot <= 0.0) return;
-         // Place market buy with SL set (no TP - we will close with pending limits)
-         if(!PlaceMarketOrder(true, lot, entry, sl, 0.0, "PCS BUY")) return;
-         // Place two SELL_LIMIT pending orders at TP1 and TP2 to take partial profits
-         double vol1 = NormalizeDouble(lot/2.0,2);
-         double vol2 = lot - vol1;
-         if(vol1 < SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN)) vol1 = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-         if(vol2 < SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN)) vol2 = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-         // SELL_LIMITs are above market for closing long positions
-         PlacePendingLimit(ORDER_TYPE_SELL_LIMIT, tp1, vol1, "PCS TP1");
-         PlacePendingLimit(ORDER_TYPE_SELL_LIMIT, tp2, vol2, "PCS TP2");
+
+         // place market buy
+         if(!SendMarketOrder(true, lot, sl, "PCS BUY")) return;
+
+         // place pending SELL_LIMIT orders to take profits (partial closes)
+         double vol1 = NormalizeLot(lot/2.0);
+         double vol2 = NormalizeLot(lot - vol1);
+         if(vol1 < minVol) vol1 = minVol;
+         if(vol2 < minVol) vol2 = minVol;
+         datetime exp = TimeCurrent() + 7*24*3600; // 7 days expiration
+         // SELL_LIMIT at TP1 and TP2 (above current price)
+         SendPendingOrder(ORDER_TYPE_SELL_LIMIT, tp1, vol1, exp, "PCS TP1");
+         SendPendingOrder(ORDER_TYPE_SELL_LIMIT, tp2, vol2, exp, "PCS TP2");
       }
    }
 
-   // SHORT CONDITIONS (bearish bias): bearish pattern at R1 or PP
+   // ----- SHORT logic -----
    if(bearishBias)
    {
       bool pattern = bearishPin || bearishEng;
-      bool nearR1 = PriceNearLevel(sigClose, R1, proximityPips) || PriceNearLevel(sigHigh, R1, proximityPips);
-      bool nearPP = PriceNearLevel(sigClose, PP, proximityPips) || PriceNearLevel(sigHigh, PP, proximityPips);
+      bool nearR1 = IsPriceNearLevel(sigClose, R1, proximityPips, pipSize) || IsPriceNearLevel(sigHigh, R1, proximityPips, pipSize);
+      bool nearPP = IsPriceNearLevel(sigClose, PP, proximityPips, pipSize) || IsPriceNearLevel(sigHigh, PP, proximityPips, pipSize);
       if(pattern && (nearR1 || nearPP))
       {
-         double entry = bid; // sell market at bid
-         double sl = sigHigh + 3.0 * g_point;
-         if(sl <= entry) sl = entry + MathMax(10.0 * g_point, g_pip);
-         double tp1 = entry - TakeProfit1Pips * g_pip;
-         double tp2 = entry - TakeProfit2Pips * g_pip;
-         double lot = CalculateLotByRisk(entry, sl);
-         if(lot < SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN)) lot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-         lot = NormalizeLotToStep(lot);
+         double entry = bid; // market sell at bid
+         double sl    = sigHigh + 3.0 * point; // SL above signal candle high
+         if(sl <= 0) sl = entry + StopLossPips * pipSize; // fallback
+         double tp1   = entry - TakeProfit1Pips * pipSize;
+         double tp2   = entry - TakeProfit2Pips * pipSize;
+
+         double lot = CalculateLotByRisk(false, entry, sl);
+         double minVol = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+         if(lot < minVol) lot = minVol;
+         lot = NormalizeLot(lot);
          if(lot <= 0.0) return;
-         if(!PlaceMarketOrder(false, lot, entry, sl, 0.0, "PCS SELL")) return;
-         double vol1 = NormalizeDouble(lot/2.0,2);
-         double vol2 = lot - vol1;
-         if(vol1 < SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN)) vol1 = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-         if(vol2 < SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN)) vol2 = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-         // BUY_LIMITs are below market for closing short positions
-         PlacePendingLimit(ORDER_TYPE_BUY_LIMIT, tp1, vol1, "PCS TP1");
-         PlacePendingLimit(ORDER_TYPE_BUY_LIMIT, tp2, vol2, "PCS TP2");
+
+         // place market sell
+         if(!SendMarketOrder(false, lot, sl, "PCS SELL")) return;
+
+         // place pending BUY_LIMIT orders to take profits (partial closes)
+         double vol1 = NormalizeLot(lot/2.0);
+         double vol2 = NormalizeLot(lot - vol1);
+         if(vol1 < minVol) vol1 = minVol;
+         if(vol2 < minVol) vol2 = minVol;
+         datetime exp = TimeCurrent() + 7*24*3600;
+         // BUY_LIMIT at TP1 and TP2 (below current price)
+         SendPendingOrder(ORDER_TYPE_BUY_LIMIT, tp1, vol1, exp, "PCS TP1");
+         SendPendingOrder(ORDER_TYPE_BUY_LIMIT, tp2, vol2, exp, "PCS TP2");
       }
    }
 }
 
-//------------------------------------------------------------------
-// OnInit: initialize globals
-//------------------------------------------------------------------
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
 int OnInit()
 {
-   // symbol settings
-   g_point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   g_digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
-   if(g_point <= 0.0) g_point = _Point;
-   // pip: common definition - for 5 or 3 digit brokers pip = 10 * point
-   if(g_digits == 3 || g_digits == 5) g_pip = g_point * 10.0; else g_pip = g_point;
-   // Select symbol if not already
+   // ensure symbol selected in MarketWatch
    if(!SymbolInfoInteger(_Symbol, SYMBOL_SELECT))
-      SymbolSelect(_Symbol, true);
-   PrintFormat("PivotCandleScalper initialized on %s timeframe=%d pip=%.10f point=%.10f digits=%d",
-               _Symbol, Period(), g_pip, g_point, g_digits);
+   {
+      if(!SymbolSelect(_Symbol, true))
+      {
+         PrintFormat("Failed to select symbol %s", _Symbol);
+         return(INIT_FAILED);
+      }
+   }
+   PrintFormat("PivotCandleScalper initialized for %s timeframe=%d", _Symbol, _Period);
    return(INIT_SUCCEEDED);
 }
 
-//------------------------------------------------------------------
-// OnDeinit
-//------------------------------------------------------------------
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-   Print("PivotCandleScalper deinitialized.");
+   Print("PivotCandleScalper stopped.");
 }
 
-//------------------------------------------------------------------
-// OnTick: primary entry point
-//------------------------------------------------------------------
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
 void OnTick()
 {
-   CheckAndEnterTrade();
+   CheckAndTrade();
 }
 //+------------------------------------------------------------------+
+```

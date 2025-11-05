@@ -109,18 +109,38 @@ detect_liquidity_sweep() =>
     
     if bar_index >= 20
         // Bearish sweep: high breaks previous high + rejection
+        // Additional validation: must have significant move before sweep (zig-zag confirmation)
         wick_high = high - close
         if high > prev_high and close < high - pips_to_price(rejection_pips) and wick_high >= pips_to_price(rejection_pips)
-            sweep_type := "bear_sweep"
-            sweep_price := high
-            sweep_valid := true
+            // Zig-zag validation: check for price movement before sweep
+            // Look for at least 3 bars of upward movement leading to the sweep
+            upward_movement = 0
+            for j = 1 to math.min(5, bar_index)
+                if high[j-1] > high[j] or low[j-1] > low[j]
+                    upward_movement += 1
+            
+            // Only valid if there was clear upward movement (zig-zag pattern)
+            if upward_movement >= 2
+                sweep_type := "bear_sweep"
+                sweep_price := high
+                sweep_valid := true
         
         // Bullish sweep: low breaks previous low + rejection
+        // Additional validation: must have significant move before sweep (zig-zag confirmation)
         wick_low = close - low
         if low < prev_low and close > low + pips_to_price(rejection_pips) and wick_low >= pips_to_price(rejection_pips)
-            sweep_type := "bull_sweep"
-            sweep_price := low
-            sweep_valid := true
+            // Zig-zag validation: check for price movement before sweep
+            // Look for at least 3 bars of downward movement leading to the sweep
+            downward_movement = 0
+            for j = 1 to math.min(5, bar_index)
+                if high[j-1] < high[j] or low[j-1] < low[j]
+                    downward_movement += 1
+            
+            // Only valid if there was clear downward movement (zig-zag pattern)
+            if downward_movement >= 2
+                sweep_type := "bull_sweep"
+                sweep_price := low
+                sweep_valid := true
     
     [sweep_valid, sweep_type, sweep_price]
 
@@ -188,6 +208,7 @@ detect_fvg() =>
 // ============================================================================
 
 // Check if MSS occurred after sweep (using array-based approach for historical data)
+// MSS = Market Structure Shift confirming the sweep direction
 check_mss_after_sweep(sweep_bar_index, current_bar_index, sweep_type, sweep_low, sweep_high) =>
     mss_confirmed = false
     
@@ -195,19 +216,25 @@ check_mss_after_sweep(sweep_bar_index, current_bar_index, sweep_type, sweep_low,
         bars_since_sweep = current_bar_index - sweep_bar_index
         
         if bars_since_sweep > 0 and bars_since_sweep <= mss_lookforward_bars
-            // For bear_sweep: need lower low after sweep
+            // For bear_sweep: need a clear lower low after sweep (confirming bearish structure)
+            // Must be a significant break, not just a minor dip
             if sweep_type == "bear_sweep"
-                // Check if any bar between sweep and current made lower low
+                // Check if any bar between sweep and current made a significant lower low
                 for i = 1 to bars_since_sweep
-                    if low[bars_since_sweep - i] < sweep_low
+                    check_low = low[bars_since_sweep - i]
+                    // Require clear break below sweep low (not just a tick)
+                    if check_low < sweep_low - pips_to_price(0.5)
                         mss_confirmed := true
                         break
             
-            // For bull_sweep: need higher high after sweep
+            // For bull_sweep: need a clear higher high after sweep (confirming bullish structure)
+            // Must be a significant break, not just a minor spike
             if sweep_type == "bull_sweep"
-                // Check if any bar between sweep and current made higher high
+                // Check if any bar between sweep and current made a significant higher high
                 for i = 1 to bars_since_sweep
-                    if high[bars_since_sweep - i] > sweep_high
+                    check_high = high[bars_since_sweep - i]
+                    // Require clear break above sweep high (not just a tick)
+                    if check_high > sweep_high + pips_to_price(0.5)
                         mss_confirmed := true
                         break
     
@@ -474,7 +501,7 @@ if array.size(pending_setup_bars) > 0 and barstate.isconfirmed
 // TRADE OUTCOME TRACKING
 // ============================================================================
 
-// Check active trades for TP/SL hits or time-based exit (before NY close)
+// Check active trades for TP/SL hits (removed time-based exit)
 if array.size(trade_entry_bars) > 0
     for i = array.size(trade_entry_bars) - 1 to 0
         if array.get(trade_active, i)
@@ -483,11 +510,6 @@ if array.size(trade_entry_bars) > 0
             sl_p = array.get(trade_sl_prices, i)
             tp_p = array.get(trade_tp_prices, i)
             direction = array.get(trade_directions, i)
-            
-            // Check if trade should be closed (time-based: before NY close)
-            current_h = hour(time)
-            bars_in_trade = bar_index - entry_bar
-            should_close_time = current_h >= ny_close_hour or bars_in_trade > 30
             
             // Check for TP or SL hit
             tp_hit = false
@@ -500,32 +522,15 @@ if array.size(trade_entry_bars) > 0
                 tp_hit := low <= tp_p
                 sl_hit := high >= sl_p
             
-            // Draw outcome line if trade is complete
-            if tp_hit or sl_hit or should_close_time
+            // Draw outcome line only when TP or SL is hit
+            if tp_hit or sl_hit
                 array.set(trade_active, i, false)
                 exit_bar = bar_index
-                exit_price = tp_hit ? tp_p : (sl_hit ? sl_p : close)
-                
-                // Calculate profit/loss in pips
-                pnl_pips = 0.0
-                if direction == "BUY"
-                    pnl_pips := price_to_pips(exit_price - entry_p)
-                else
-                    pnl_pips := price_to_pips(entry_p - exit_price)
+                exit_price = tp_hit ? tp_p : sl_p
                 
                 // Determine outcome and color
-                outcome_color = tp_hit ? color.green : (sl_hit ? color.red : color.orange)
-                
-                // Declare outcome_text before conditional blocks
-                outcome_text = ""
-                
-                // Build outcome text based on what happened (no profit/loss amounts)
-                if tp_hit
-                    outcome_text := "TP"
-                else if sl_hit
-                    outcome_text := "SL"
-                else
-                    outcome_text := "Exit"
+                outcome_color = tp_hit ? color.green : color.red
+                outcome_text = tp_hit ? "TP" : "SL"
                 
                 // Draw line from entry to exit
                 line.new(entry_bar, entry_p, exit_bar, exit_price, color=outcome_color, width=2, style=line.style_solid)

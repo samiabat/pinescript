@@ -15,11 +15,13 @@ input double   RiskPercent = 0.5;                 // Risk percent per trade (0 =
 input double   StopLossPips = 15;                 // Stop Loss in pips
 input double   TakeProfit1Pips = 20;              // Take Profit 1 in pips (50% close)
 input double   TakeProfit2Pips = 40;              // Take Profit 2 in pips (remaining 50%)
+input int      MaxTradesPerDay = 10;              // Maximum trades per day (0 = unlimited)
 input long     MagicNumber = 202506;              // Magic number for order identification
 input double   MaxSpread = 30;                    // Maximum spread in points
 input bool     EnableTradingHours = false;        // Enable trading hours restriction
 input int      TradeStartHour = 0;                // Trading start hour (0-23)
 input int      TradeEndHour = 23;                 // Trading end hour (0-23)
+input bool     EnableDebugLogs = true;            // Enable detailed debug logging
 
 //--- Global variables
 double g_PP, g_R1, g_R2, g_S1, g_S2;              // Pivot points
@@ -28,6 +30,14 @@ double g_tickSize;                                 // Tick size for current symb
 int g_digits;                                      // Digits for current symbol
 double g_pipValue;                                 // Pip value (adjusted for different symbols)
 bool g_isMetalOrIndex;                            // Symbol type flag
+int g_tradesCountToday = 0;                       // Counter for trades today
+datetime g_lastTradeDay = 0;                      // Last trade day tracking
+
+//--- Trade level variables (visible globally for debugging)
+double g_EntryPrice = 0;                          // Last entry price
+double g_StopLoss = 0;                            // Last stop loss level
+double g_TakeProfit1 = 0;                         // Last take profit 1 level
+double g_TakeProfit2 = 0;                         // Last take profit 2 level
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -112,16 +122,32 @@ void OnTick()
    
    //--- Check trading hours if enabled
    if(EnableTradingHours && !IsTradingHourAllowed())
+   {
+      if(EnableDebugLogs)
+         Print("Outside trading hours");
+      return;
+   }
+   
+   //--- Check daily trade limit
+   if(!CheckDailyTradeLimit())
       return;
    
    //--- Check if position already exists
    if(HasOpenPosition())
+   {
+      if(EnableDebugLogs)
+         Print("Position already open, waiting for exit");
       return;
+   }
    
    //--- Check spread condition
    double currentSpread = GetCurrentSpread();
    if(currentSpread > MaxSpread)
+   {
+      if(EnableDebugLogs)
+         Print("Spread too high: ", DoubleToString(currentSpread, 1), " > ", MaxSpread);
       return;
+   }
    
    //--- Get current price
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -132,12 +158,23 @@ void OnTick()
    bool bullishBias = currentPrice > g_PP;
    bool bearishBias = currentPrice < g_PP;
    
+   if(EnableDebugLogs)
+   {
+      Print("═══ New Bar Check ═══");
+      Print("Price: ", DoubleToString(currentPrice, g_digits), 
+            " | PP: ", DoubleToString(g_PP, g_digits),
+            " | Bias: ", (bullishBias ? "Bullish" : (bearishBias ? "Bearish" : "Neutral")));
+      Print("Spread: ", DoubleToString(currentSpread, 1), " points");
+   }
+   
    //--- Look for trading signals
    if(bullishBias)
    {
       //--- Check for bullish setup at S1 or PP
       if(CheckBullishSetup())
       {
+         if(EnableDebugLogs)
+            Print("✓ Bullish setup confirmed! Opening buy order...");
          OpenBuyOrder();
       }
    }
@@ -146,6 +183,8 @@ void OnTick()
       //--- Check for bearish setup at R1 or PP
       if(CheckBearishSetup())
       {
+         if(EnableDebugLogs)
+            Print("✓ Bearish setup confirmed! Opening sell order...");
          OpenSellOrder();
       }
    }
@@ -215,6 +254,52 @@ bool HasOpenPosition()
 }
 
 //+------------------------------------------------------------------+
+//| Check and update daily trade counter                             |
+//+------------------------------------------------------------------+
+bool CheckDailyTradeLimit()
+{
+   //--- If unlimited trades, return true
+   if(MaxTradesPerDay <= 0)
+      return true;
+   
+   //--- Get current day
+   MqlDateTime timeStruct;
+   TimeToStruct(TimeCurrent(), timeStruct);
+   datetime currentDay = StringToTime(IntegerToString(timeStruct.year) + "." + 
+                                       IntegerToString(timeStruct.mon) + "." + 
+                                       IntegerToString(timeStruct.day));
+   
+   //--- Reset counter if new day
+   if(currentDay != g_lastTradeDay)
+   {
+      g_tradesCountToday = 0;
+      g_lastTradeDay = currentDay;
+      if(EnableDebugLogs)
+         Print("New trading day started. Trade counter reset.");
+   }
+   
+   //--- Check if limit reached
+   if(g_tradesCountToday >= MaxTradesPerDay)
+   {
+      if(EnableDebugLogs)
+         Print("Daily trade limit reached: ", g_tradesCountToday, "/", MaxTradesPerDay);
+      return false;
+   }
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Increment daily trade counter                                    |
+//+------------------------------------------------------------------+
+void IncrementTradeCounter()
+{
+   g_tradesCountToday++;
+   if(EnableDebugLogs)
+      Print("Trade opened. Daily count: ", g_tradesCountToday, "/", MaxTradesPerDay);
+}
+
+//+------------------------------------------------------------------+
 //| Get current spread in points                                     |
 //+------------------------------------------------------------------+
 double GetCurrentSpread()
@@ -240,12 +325,30 @@ bool CheckBullishSetup()
    bool nearS1 = MathAbs(close1 - g_S1) <= tolerance;
    bool nearPP = MathAbs(close1 - g_PP) <= tolerance;
    
+   if(EnableDebugLogs)
+   {
+      Print("  Checking bullish setup:");
+      Print("  Close: ", DoubleToString(close1, g_digits),
+            " | S1: ", DoubleToString(g_S1, g_digits), " (", (nearS1 ? "NEAR" : "far"), ")",
+            " | PP: ", DoubleToString(g_PP, g_digits), " (", (nearPP ? "NEAR" : "far"), ")");
+   }
+   
    if(!nearS1 && !nearPP)
+   {
+      if(EnableDebugLogs)
+         Print("  ✗ Not near key level (S1 or PP)");
       return false;
+   }
    
    //--- Check for bullish candlestick patterns
    bool isBullishPinBar = IsBullishPinBar(open1, high1, low1, close1);
    bool isBullishEngulfing = IsBullishEngulfing();
+   
+   if(EnableDebugLogs)
+   {
+      Print("  Pin Bar: ", (isBullishPinBar ? "YES" : "no"),
+            " | Engulfing: ", (isBullishEngulfing ? "YES" : "no"));
+   }
    
    return (isBullishPinBar || isBullishEngulfing);
 }
@@ -266,12 +369,30 @@ bool CheckBearishSetup()
    bool nearR1 = MathAbs(close1 - g_R1) <= tolerance;
    bool nearPP = MathAbs(close1 - g_PP) <= tolerance;
    
+   if(EnableDebugLogs)
+   {
+      Print("  Checking bearish setup:");
+      Print("  Close: ", DoubleToString(close1, g_digits),
+            " | R1: ", DoubleToString(g_R1, g_digits), " (", (nearR1 ? "NEAR" : "far"), ")",
+            " | PP: ", DoubleToString(g_PP, g_digits), " (", (nearPP ? "NEAR" : "far"), ")");
+   }
+   
    if(!nearR1 && !nearPP)
+   {
+      if(EnableDebugLogs)
+         Print("  ✗ Not near key level (R1 or PP)");
       return false;
+   }
    
    //--- Check for bearish candlestick patterns
    bool isBearishPinBar = IsBearishPinBar(open1, high1, low1, close1);
    bool isBearishEngulfing = IsBearishEngulfing();
+   
+   if(EnableDebugLogs)
+   {
+      Print("  Pin Bar: ", (isBearishPinBar ? "YES" : "no"),
+            " | Engulfing: ", (isBearishEngulfing ? "YES" : "no"));
+   }
    
    return (isBearishPinBar || isBearishEngulfing);
 }
@@ -414,25 +535,40 @@ void OpenBuyOrder()
 {
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    
+   //--- Store entry price
+   g_EntryPrice = ask;
+   
    //--- Get signal candle low for stop loss
    double signalLow = iLow(_Symbol, PERIOD_CURRENT, 1);
    
    //--- Calculate stop loss and take profits
-   double stopLoss = signalLow - (2 * g_pipValue);  // Buffer below signal low
-   double takeProfit1 = ask + (TakeProfit1Pips * g_pipValue);
-   double takeProfit2 = ask + (TakeProfit2Pips * g_pipValue);
+   g_StopLoss = signalLow - (2 * g_pipValue);  // Buffer below signal low
+   g_TakeProfit1 = ask + (TakeProfit1Pips * g_pipValue);
+   g_TakeProfit2 = ask + (TakeProfit2Pips * g_pipValue);
    
    //--- Normalize prices
-   stopLoss = NormalizeDouble(stopLoss, g_digits);
-   takeProfit1 = NormalizeDouble(takeProfit1, g_digits);
-   takeProfit2 = NormalizeDouble(takeProfit2, g_digits);
+   g_StopLoss = NormalizeDouble(g_StopLoss, g_digits);
+   g_TakeProfit1 = NormalizeDouble(g_TakeProfit1, g_digits);
+   g_TakeProfit2 = NormalizeDouble(g_TakeProfit2, g_digits);
    
    //--- Calculate lot size
-   double slDistance = (ask - stopLoss) / g_point;
+   double slDistance = (ask - g_StopLoss) / g_point;
    double lotSize = CalculateLotSize(slDistance);
    
    //--- We'll open two positions: 50% for TP1, 50% for TP2
    double halfLot = NormalizeDouble(lotSize / 2.0, 2);
+   
+   if(EnableDebugLogs)
+   {
+      Print("══════════════════════════════════════════════");
+      Print("OPENING BUY ORDER");
+      Print("Entry (E): ", DoubleToString(g_EntryPrice, g_digits));
+      Print("Stop Loss (SL): ", DoubleToString(g_StopLoss, g_digits));
+      Print("Take Profit 1 (TP1): ", DoubleToString(g_TakeProfit1, g_digits));
+      Print("Take Profit 2 (TP2): ", DoubleToString(g_TakeProfit2, g_digits));
+      Print("Lot Size: ", DoubleToString(lotSize, 2), " (", DoubleToString(halfLot, 2), " per position)");
+      Print("══════════════════════════════════════════════");
+   }
    
    //--- Prepare trade request
    MqlTradeRequest request;
@@ -446,8 +582,8 @@ void OpenBuyOrder()
    request.volume = halfLot;
    request.type = ORDER_TYPE_BUY;
    request.price = ask;
-   request.sl = stopLoss;
-   request.tp = takeProfit1;
+   request.sl = g_StopLoss;
+   request.tp = g_TakeProfit1;
    request.deviation = 10;
    request.magic = MagicNumber;
    request.comment = "PCS_Buy_TP1";
@@ -458,7 +594,7 @@ void OpenBuyOrder()
       return;
    }
    
-   Print("Buy order TP1 opened successfully. Ticket: ", result.order);
+   Print("✓ Buy order TP1 opened successfully. Ticket: ", result.order);
    
    //--- Second position (50% at TP2)
    ZeroMemory(request);
@@ -469,8 +605,8 @@ void OpenBuyOrder()
    request.volume = halfLot;
    request.type = ORDER_TYPE_BUY;
    request.price = ask;
-   request.sl = stopLoss;
-   request.tp = takeProfit2;
+   request.sl = g_StopLoss;
+   request.tp = g_TakeProfit2;
    request.deviation = 10;
    request.magic = MagicNumber;
    request.comment = "PCS_Buy_TP2";
@@ -481,7 +617,10 @@ void OpenBuyOrder()
       return;
    }
    
-   Print("Buy order TP2 opened successfully. Ticket: ", result.order);
+   Print("✓ Buy order TP2 opened successfully. Ticket: ", result.order);
+   
+   //--- Increment trade counter
+   IncrementTradeCounter();
 }
 
 //+------------------------------------------------------------------+
@@ -491,25 +630,40 @@ void OpenSellOrder()
 {
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    
+   //--- Store entry price
+   g_EntryPrice = bid;
+   
    //--- Get signal candle high for stop loss
    double signalHigh = iHigh(_Symbol, PERIOD_CURRENT, 1);
    
    //--- Calculate stop loss and take profits
-   double stopLoss = signalHigh + (2 * g_pipValue);  // Buffer above signal high
-   double takeProfit1 = bid - (TakeProfit1Pips * g_pipValue);
-   double takeProfit2 = bid - (TakeProfit2Pips * g_pipValue);
+   g_StopLoss = signalHigh + (2 * g_pipValue);  // Buffer above signal high
+   g_TakeProfit1 = bid - (TakeProfit1Pips * g_pipValue);
+   g_TakeProfit2 = bid - (TakeProfit2Pips * g_pipValue);
    
    //--- Normalize prices
-   stopLoss = NormalizeDouble(stopLoss, g_digits);
-   takeProfit1 = NormalizeDouble(takeProfit1, g_digits);
-   takeProfit2 = NormalizeDouble(takeProfit2, g_digits);
+   g_StopLoss = NormalizeDouble(g_StopLoss, g_digits);
+   g_TakeProfit1 = NormalizeDouble(g_TakeProfit1, g_digits);
+   g_TakeProfit2 = NormalizeDouble(g_TakeProfit2, g_digits);
    
    //--- Calculate lot size
-   double slDistance = (stopLoss - bid) / g_point;
+   double slDistance = (g_StopLoss - bid) / g_point;
    double lotSize = CalculateLotSize(slDistance);
    
    //--- We'll open two positions: 50% for TP1, 50% for TP2
    double halfLot = NormalizeDouble(lotSize / 2.0, 2);
+   
+   if(EnableDebugLogs)
+   {
+      Print("══════════════════════════════════════════════");
+      Print("OPENING SELL ORDER");
+      Print("Entry (E): ", DoubleToString(g_EntryPrice, g_digits));
+      Print("Stop Loss (SL): ", DoubleToString(g_StopLoss, g_digits));
+      Print("Take Profit 1 (TP1): ", DoubleToString(g_TakeProfit1, g_digits));
+      Print("Take Profit 2 (TP2): ", DoubleToString(g_TakeProfit2, g_digits));
+      Print("Lot Size: ", DoubleToString(lotSize, 2), " (", DoubleToString(halfLot, 2), " per position)");
+      Print("══════════════════════════════════════════════");
+   }
    
    //--- Prepare trade request
    MqlTradeRequest request;
@@ -523,8 +677,8 @@ void OpenSellOrder()
    request.volume = halfLot;
    request.type = ORDER_TYPE_SELL;
    request.price = bid;
-   request.sl = stopLoss;
-   request.tp = takeProfit1;
+   request.sl = g_StopLoss;
+   request.tp = g_TakeProfit1;
    request.deviation = 10;
    request.magic = MagicNumber;
    request.comment = "PCS_Sell_TP1";
@@ -535,7 +689,7 @@ void OpenSellOrder()
       return;
    }
    
-   Print("Sell order TP1 opened successfully. Ticket: ", result.order);
+   Print("✓ Sell order TP1 opened successfully. Ticket: ", result.order);
    
    //--- Second position (50% at TP2)
    ZeroMemory(request);
@@ -546,8 +700,8 @@ void OpenSellOrder()
    request.volume = halfLot;
    request.type = ORDER_TYPE_SELL;
    request.price = bid;
-   request.sl = stopLoss;
-   request.tp = takeProfit2;
+   request.sl = g_StopLoss;
+   request.tp = g_TakeProfit2;
    request.deviation = 10;
    request.magic = MagicNumber;
    request.comment = "PCS_Sell_TP2";
@@ -558,6 +712,9 @@ void OpenSellOrder()
       return;
    }
    
-   Print("Sell order TP2 opened successfully. Ticket: ", result.order);
+   Print("✓ Sell order TP2 opened successfully. Ticket: ", result.order);
+   
+   //--- Increment trade counter
+   IncrementTradeCounter();
 }
 //+------------------------------------------------------------------+

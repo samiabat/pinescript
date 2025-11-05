@@ -1,27 +1,37 @@
-# ICT Trading Strategy - Complete Implementation
+# Trading Strategies Repository
 
-A comprehensive implementation of ICT (Inner Circle Trader) trading strategies with Python backtesting and MetaTrader 5 Expert Advisor.
+A collection of trading strategy implementations with Python backtesting and MetaTrader 5 Expert Advisors. This repository prioritizes **realistic** assessments with honest cost modeling.
 
 ## 📁 Repository Structure
 
 ```
 pinescript/
-├── README.md                  # This file - project overview
-├── ict_trader.py              # Python backtest implementation
-├── EURUSD15.csv               # Historical EURUSD 15-minute data
-├── equity_fixed.png           # Equity curve from Python backtest
-└── docs/                      # Complete documentation
-    ├── README.md              # Documentation overview & quick start
-    ├── CODE_REVIEW.md         # Detailed code analysis & realism assessment
-    ├── ICT_Strategy_EA.mq5    # MetaTrader 5 Expert Advisor
-    └── MT5_TESTING_GUIDE.md   # Complete MT5 testing guide
+├── README.md                    # This file - project overview
+├── README_GOLD_SCALPER.md       # Gold scalper documentation
+│
+├── ict_trader.py                # ICT strategy (EURUSD 15min)
+├── gold_scalper.py              # Gold scalper (XAUUSD 5min)
+│
+├── Gold_Scalper_EA.mq5          # MT5 EA for Gold scalping
+│
+├── EURUSD15.csv                 # Historical EURUSD 15-minute data
+├── XAUUSD5.csv                  # Historical Gold 5-minute data
+│
+├── equity_fixed.png             # ICT strategy equity curve
+├── gold_scalper_equity.png      # Gold scalper equity curve
+│
+└── docs/                        # ICT strategy documentation
+    ├── README.md                # Documentation overview & quick start
+    ├── CODE_REVIEW.md           # Detailed code analysis & realism assessment
+    ├── ICT_Strategy_EA.mq5      # MetaTrader 5 Expert Advisor
+    └── MT5_TESTING_GUIDE.md     # Complete MT5 testing guide
 ```
 
 ## 🎯 What's Included
 
-### 1. Python Backtesting System (`ict_trader.py`)
+### 1. ICT Trading Strategy (EURUSD)
 
-A complete ICT strategy implementation featuring:
+A complete ICT (Inner Circle Trader) strategy implementation featuring:
 
 - **Fair Value Gaps (FVG)** - Identifies price imbalances
 - **Liquidity Sweeps** - Detects stop hunts and reversals  
@@ -38,26 +48,111 @@ A complete ICT strategy implementation featuring:
 
 ⚠️ **Important**: These results are **unrealistic** for live trading. See [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md) for detailed analysis.
 
-### 2. MetaTrader 5 Expert Advisor (`docs/ICT_Strategy_EA.mq5`)
+**Files:**
+- `ict_trader.py` - Python implementation
+- `docs/ICT_Strategy_EA.mq5` - MetaTrader 5 EA
+- `EURUSD15.csv` - Historical data
+- `docs/` - Complete documentation
 
-Production-ready MT5 implementation with:
+---
 
-- All ICT strategy components from Python version
-- Enhanced risk controls (daily loss limits, trade limits)
-- Configurable parameters
-- Error handling and logging
-- Compatible with MT5 strategy tester
-- Ready for demo and live trading
+### 2. Gold Scalping Strategy (XAUUSD) ⭐ NEW!
 
-**Improvements over Python version**:
-- Added daily loss limit protection
-- More conservative default settings
-- FVG confirmation requirement
-- Better cost modeling
+A **realistic** scalping strategy for Gold with honest cost modeling.
 
-### 3. Comprehensive Documentation (`docs/`)
+**Strategy Features:**
+- Momentum-based entries
+- Tight profit targets ($10) and stop losses ($7)
+- Proper risk management (1% per trade)
+- Realistic costs: spread, slippage, commission
 
-Complete guides covering:
+**Backtest Results** (on XAUUSD 5-minute data):
+- **Initial Balance**: $10,000
+- **Final Balance**: $4,959
+- **Net P&L**: -$5,040 (-50.4%)
+- **Total Trades**: 457
+- **Win Rate**: 39.4%
+- **Profit Factor**: 0.77
+
+**⚠️ HONEST ASSESSMENT: This strategy LOSES MONEY**
+
+This is **intentional** and **educational**. It demonstrates:
+- Why scalping is difficult with realistic costs
+- How spread/slippage/commission impact profitability  
+- Why simple momentum strategies often fail
+- The importance of honest backtesting
+
+**Files:**
+- `gold_scalper.py` - Python implementation
+- `Gold_Scalper_EA.mq5` - MetaTrader 5 EA
+- `XAUUSD5.csv` - Historical data (100,000 candles)
+- `README_GOLD_SCALPER.md` - **Complete documentation** with lessons learned
+
+**See [README_GOLD_SCALPER.md](README_GOLD_SCALPER.md) for:**
+- Why the strategy loses money
+- What it teaches about trading costs
+- How to potentially make it profitable
+- Detailed code explanation
+- Educational insights
+
+---
+
+## 🚀 Quick Start
+
+### Gold Scalper (Realistic Educational Example)
+
+```bash
+# Install dependencies
+pip install pandas numpy matplotlib
+
+# Run backtest
+python gold_scalper.py
+
+# View results
+# - Console output with detailed metrics
+# - gold_scalper_equity.png (equity curve)
+# - Read README_GOLD_SCALPER.md for interpretation
+```
+
+### ICT Strategy (EURUSD)
+
+```bash
+# Install dependencies
+pip install pandas numpy matplotlib
+
+# Run backtest
+python ict_trader.py
+
+# View results
+# - Console output with performance metrics
+# - equity_fixed.png for equity curve
+# - Read docs/CODE_REVIEW.md for realistic assessment
+```
+
+### MT5 Expert Advisors
+
+**ICT Strategy EA:**
+1. Copy `docs/ICT_Strategy_EA.mq5` to MT5's `MQL5/Experts` folder
+2. Compile in MetaEditor
+3. See [docs/MT5_TESTING_GUIDE.md](docs/MT5_TESTING_GUIDE.md) for testing
+
+**Gold Scalper EA:**
+1. Copy `Gold_Scalper_EA.mq5` to MT5's `MQL5/Experts` folder
+2. Compile in MetaEditor
+3. **WARNING**: This EA loses money - for educational use only!
+
+---
+
+## 📚 Documentation
+
+### Gold Scalper (NEW!)
+- **[README_GOLD_SCALPER.md](README_GOLD_SCALPER.md)** - Complete documentation
+  - Why it loses money (realistic costs)
+  - What it teaches about trading
+  - How costs impact profitability
+  - Lessons for traders
+
+### ICT Strategy
 
 #### [CODE_REVIEW.md](docs/CODE_REVIEW.md) - Strategy Analysis
 - Detailed review of implementation
@@ -82,55 +177,59 @@ Complete guides covering:
 - Pre-live trading checklist
 - Common mistakes to avoid
 
-## 🚀 Quick Start
+---
 
-### Python Backtesting
+## 🎯 Which Strategy Should You Use?
 
-1. **Install Dependencies**
-```bash
-pip install pandas numpy matplotlib
-```
+### For Learning About Realistic Trading Costs
+→ **Gold Scalper** (`gold_scalper.py`)
+- Shows honest, losing results
+- Teaches why scalping is hard
+- Demonstrates cost impact
+- Best for education
 
-2. **Run Backtest**
-```bash
-python ict_trader.py
-```
+### For Learning ICT Concepts
+→ **ICT Strategy** (`ict_trader.py`)  
+- Implements advanced concepts
+- Shows impressive backtest (unrealistic)
+- Read CODE_REVIEW.md to understand flaws
+- Better for learning strategy development
 
-3. **Review Results**
-- Check console output for performance metrics
-- View `equity_fixed.png` for equity curve
-- Read [CODE_REVIEW.md](docs/CODE_REVIEW.md) for realistic assessment
+### For Live Trading
+→ **Neither one as-is!**
+- Both need significant improvements
+- Test extensively on demo first
+- Expect much worse live results
+- Consider these educational templates
 
-### MT5 Implementation
-
-1. **Read Documentation First**
-   - [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md) - Understand the strategy
-   - [docs/MT5_TESTING_GUIDE.md](docs/MT5_TESTING_GUIDE.md) - Learn testing process
-
-2. **Install Expert Advisor**
-   - Copy `docs/ICT_Strategy_EA.mq5` to MT5's `MQL5/Experts` folder
-   - Open MetaEditor and compile the EA
-   - Follow [MT5_TESTING_GUIDE.md](docs/MT5_TESTING_GUIDE.md) for detailed steps
-
-3. **Backtest in MT5**
-   - Open MT5 Strategy Tester (Ctrl+R)
-   - Configure settings per guide
-   - Run backtest and analyze results
-
-4. **Forward Test (Demo)**
-   - Create demo account
-   - Attach EA to EURUSD M15 chart
-   - Monitor for minimum 3 months
-   - Compare results with backtest
-
-5. **Transition to Live** (only if demo successful)
-   - Start with micro account
-   - Use 0.5% risk per trade
-   - Scale gradually
+---
 
 ## ⚠️ Important Warnings
 
-### About Performance Expectations
+### About the Gold Scalper
+
+**This strategy INTENTIONALLY loses money** to teach important lessons:
+
+1. **Realistic Costs Matter**
+   - Spread, slippage, commission add up fast
+   - $7.44 average cost per trade
+   - With $10 profit target, costs are 74%!
+
+2. **Why It's Educational**
+   - Most strategies online show fake profits
+   - This shows the truth about trading difficulty
+   - Teaches you to be skeptical of backtests
+   - Demonstrates proper cost modeling
+
+3. **What You Learn**
+   - How to code a trading strategy
+   - How to model costs realistically
+   - Why win rate matters for profitability
+   - How to evaluate strategy performance
+
+**Read [README_GOLD_SCALPER.md](README_GOLD_SCALPER.md) for complete analysis!**
+
+### About the ICT Strategy
 
 **Python Backtest Shows**: 513,418% return  
 **Realistic Expectation**: 10-30% annually (if profitable)

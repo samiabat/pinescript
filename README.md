@@ -6,15 +6,20 @@ A comprehensive implementation of ICT (Inner Circle Trader) trading strategies w
 
 ```
 pinescript/
-├── README.md                  # This file - project overview
-├── ict_trader.py              # Python backtest implementation
-├── EURUSD15.csv               # Historical EURUSD 15-minute data
-├── equity_fixed.png           # Equity curve from Python backtest
-└── docs/                      # Complete documentation
-    ├── README.md              # Documentation overview & quick start
-    ├── CODE_REVIEW.md         # Detailed code analysis & realism assessment
-    ├── ICT_Strategy_EA.mq5    # MetaTrader 5 Expert Advisor
-    └── MT5_TESTING_GUIDE.md   # Complete MT5 testing guide
+├── README.md                      # This file - project overview
+├── ict_trader.py                  # Python backtest implementation
+├── ICT_Strategy_Indicator.pine    # Pine Script v5 TradingView indicator
+├── ICT_Strategy.pine              # Pine Script v5 TradingView strategy (backtesting)
+├── PINESCRIPT_USAGE.md            # Pine Script indicator usage guide
+├── STRATEGY_USAGE.md              # Pine Script strategy usage guide
+├── IMPLEMENTATION_SUMMARY.md      # Implementation details
+├── EURUSD15.csv                   # Historical EURUSD 15-minute data
+├── equity_fixed.png               # Equity curve from Python backtest
+└── docs/                          # Complete documentation
+    ├── README.md                  # Documentation overview & quick start
+    ├── CODE_REVIEW.md             # Detailed code analysis & realism assessment
+    ├── ICT_Strategy_EA.mq5        # MetaTrader 5 Expert Advisor
+    └── MT5_TESTING_GUIDE.md       # Complete MT5 testing guide
 ```
 
 ## 🎯 What's Included
@@ -38,7 +43,36 @@ A complete ICT strategy implementation featuring:
 
 ⚠️ **Important**: These results are **unrealistic** for live trading. See [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md) for detailed analysis.
 
-### 2. MetaTrader 5 Expert Advisor (`docs/ICT_Strategy_EA.mq5`)
+### 2. TradingView Pine Script v5 Indicator (`ICT_Strategy_Indicator.pine`)
+
+Visual indicator for TradingView with:
+
+- All ICT strategy logic from Python/MQL5 versions
+- Real-time signal visualization with BUY/SELL labels
+- FVG boxes, sweep markers, and MSS confirmations
+- Entry/Stop Loss/Take Profit level display
+- Configurable parameters matching Python/MQL5 defaults
+- Session filtering and trend alignment
+- Non-repainting signals (uses confirmed bars only)
+- Dashboard with trades count and session status
+
+**See [PINESCRIPT_USAGE.md](PINESCRIPT_USAGE.md) for complete usage guide.**
+
+### 3. TradingView Pine Script v5 Strategy (`ICT_Strategy.pine`)
+
+Backtesting strategy for TradingView with:
+
+- Executes actual trades via `strategy.entry()` and `strategy.exit()`
+- Full performance metrics (win rate, profit factor, drawdown)
+- Daily loss limits and position sizing
+- Commission and slippage modeling
+- Real-time performance dashboard
+- Conservative default parameters for realistic results
+- Compatible with TradingView Strategy Tester
+
+**See [STRATEGY_USAGE.md](STRATEGY_USAGE.md) for complete backtesting guide.**
+
+### 4. MetaTrader 5 Expert Advisor (`docs/ICT_Strategy_EA.mq5`)
 
 Production-ready MT5 implementation with:
 
@@ -55,7 +89,7 @@ Production-ready MT5 implementation with:
 - FVG confirmation requirement
 - Better cost modeling
 
-### 3. Comprehensive Documentation (`docs/`)
+### 5. Comprehensive Documentation (`docs/`)
 
 Complete guides covering:
 
@@ -83,6 +117,53 @@ Complete guides covering:
 - Common mistakes to avoid
 
 ## 🚀 Quick Start
+
+### TradingView Pine Script Indicator
+
+1. **Open TradingView Pine Editor**
+   - Go to TradingView and open the Pine Editor (bottom panel)
+
+2. **Load the Indicator**
+   - Click "New" to create a new indicator
+   - Copy contents of `ICT_Strategy_Indicator.pine`
+   - Paste into the Pine Editor
+   - Click "Save" and name it (e.g., "ICT Strategy")
+
+3. **Add to Chart**
+   - Click "Add to Chart"
+   - Use 15-minute timeframe on EURUSD (recommended)
+   - Adjust parameters as needed in the indicator settings
+
+4. **Review Signals**
+   - Look for "ICT BUY" and "ICT SELL" labels on the chart
+   - Green/Red boxes show Fair Value Gaps
+   - Triangle markers show liquidity sweeps
+   - Blue circles show Market Structure Shift confirmations
+
+**See [PINESCRIPT_USAGE.md](PINESCRIPT_USAGE.md) for detailed usage instructions.**
+
+### TradingView Strategy (Backtesting)
+
+1. **Open TradingView Pine Editor**
+   - Go to TradingView and open the Pine Editor
+
+2. **Load the Strategy**
+   - Click "New" to create a new strategy
+   - Copy contents of `ICT_Strategy.pine`
+   - Paste into the Pine Editor
+   - Click "Save" and name it (e.g., "ICT Backtest")
+
+3. **Run Backtest**
+   - Click "Add to Chart" (15-minute EURUSD recommended)
+   - Open "Strategy Tester" panel (bottom of screen)
+   - Review performance metrics, trade list, and equity curve
+
+4. **Optimize Parameters**
+   - Adjust parameters for better results
+   - Try enabling trend filter, changing R:R ratios
+   - Test different FVG minimum sizes
+
+**See [STRATEGY_USAGE.md](STRATEGY_USAGE.md) for complete backtesting guide.**
 
 ### Python Backtesting
 

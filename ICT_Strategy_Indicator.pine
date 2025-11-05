@@ -1,0 +1,601 @@
+//@version=5
+indicator("ICT Trading Strategy - FVG + Liquidity Sweep + MSS", overlay=true, max_labels_count=500, max_boxes_count=500, max_lines_count=500)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+
+// Risk Management
+risk_percent = input.float(1.5, "Risk per Trade (%)", minval=0.1, maxval=10.0, step=0.1, group="Risk Management")
+max_trades_per_day = input.int(40, "Max Trades per Day", minval=1, maxval=100, group="Risk Management")
+min_balance = input.float(100.0, "Min Balance Threshold (display)", minval=0, group="Risk Management")
+max_daily_loss_percent = input.float(5.0, "Max Daily Loss % (display)", minval=0, maxval=50, step=0.5, group="Risk Management")
+
+// ICT Parameters (Optimized for Gold/XAUUSD)
+min_FVG_pips = input.float(2.0, "Minimum FVG Size (dollars)", minval=0.5, maxval=50.0, step=0.1, group="ICT Parameters")
+rejection_pips = input.float(0.5, "Sweep Rejection (dollars)", minval=0.1, maxval=10.0, step=0.1, group="ICT Parameters")
+buffer_pips = input.float(2.0, "Stop Loss Buffer (dollars)", minval=0.1, maxval=20.0, step=0.1, group="ICT Parameters")
+DISPLACEMENT_CANDLE_MIN_SIZE_RATIO = input.float(0.5, "Displacement Candle Min Size Ratio", minval=0.1, maxval=2.0, step=0.1, group="ICT Parameters")
+max_sl_risk = input.float(10.0, "Max SL Risk (dollars)", minval=1.0, maxval=100.0, step=1.0, group="ICT Parameters")
+
+// Risk-Reward Settings
+min_RR = input.float(3.0, "Minimum R:R", minval=1.0, maxval=10.0, step=0.1, group="Risk-Reward")
+max_RR = input.float(5.0, "Maximum R:R", minval=1.0, maxval=10.0, step=0.1, group="Risk-Reward")
+use_random_RR = input.bool(true, "Use Random R:R (between min/max)", group="Risk-Reward")
+fixed_RR = input.float(3.0, "Fixed R:R (if random disabled)", minval=1.0, maxval=10.0, step=0.1, group="Risk-Reward")
+
+// Trading Sessions (New York Time - adjusted from UTC)
+london_open_hour = input.int(3, "London Open Hour (NY Time)", minval=0, maxval=23, group="Sessions")
+london_close_hour = input.int(12, "London Close Hour (NY Time)", minval=0, maxval=23, group="Sessions")
+ny_open_hour = input.int(8, "NY Open Hour (NY Time)", minval=0, maxval=23, group="Sessions")
+ny_close_hour = input.int(17, "NY Close Hour (NY Time)", minval=0, maxval=23, group="Sessions")
+
+// Trend Alignment
+enable_trend_filter = input.bool(false, "Enable Trend Alignment", group="Trend Filter")
+trend_lookback = input.int(32, "Trend Lookback Bars", minval=10, maxval=200, group="Trend Filter")
+
+// MSS Settings
+mss_lookforward_bars = input.int(30, "MSS Look-forward Bars", minval=5, maxval=100, group="MSS Detection")
+
+// Display & Debug
+spread_pips = input.float(0.6, "Spread (dollars)", minval=0, maxval=10.0, step=0.1, group="Display")
+show_fvg_boxes = input.bool(true, "Show FVG Boxes", group="Display")
+show_sweep_markers = input.bool(true, "Show Sweep Markers", group="Display")
+show_mss_markers = input.bool(true, "Show MSS Markers", group="Display")
+debug_logging = input.bool(false, "Enable Debug Logging", group="Display")
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+// Convert dollars to price for gold (1.0 = $1)
+pips_to_price(pips) => pips
+
+// Convert price to dollars for gold
+price_to_pips(price_diff) => price_diff
+
+// Check if current time is in trading session
+is_trading_session() =>
+    current_hour = hour(time)
+    in_london = current_hour >= london_open_hour and current_hour <= london_close_hour
+    in_ny = current_hour >= ny_open_hour and current_hour <= ny_close_hour
+    in_london or in_ny
+
+// Generate RR ratio (deterministic using bar_index for seed)
+get_RR_ratio() =>
+    if use_random_RR
+        // Use bar_index as seed for deterministic randomness
+        seed = bar_index % 1000
+        min_RR + (seed / 1000.0) * (max_RR - min_RR)
+    else
+        fixed_RR
+
+// ============================================================================
+// TREND DETECTION
+// ============================================================================
+
+detect_trend() =>
+    recent_bars = 8
+    older_bars = 8
+    
+    // Recent highs/lows (called unconditionally for Pine Script consistency)
+    recent_high = ta.highest(high, recent_bars)
+    recent_low = ta.lowest(low, recent_bars)
+    
+    // Older highs/lows (offset by recent_bars)
+    older_high = ta.highest(high[recent_bars], older_bars)
+    older_low = ta.lowest(low[recent_bars], older_bars)
+    
+    trend = "neutral"
+    if bar_index >= trend_lookback
+        if recent_high > older_high and recent_low > older_low
+            trend := "bullish"
+        else if recent_high < older_high and recent_low < older_low
+            trend := "bearish"
+    trend
+
+// ============================================================================
+// LIQUIDITY SWEEP DETECTION
+// ============================================================================
+
+detect_liquidity_sweep() =>
+    sweep_type = ""
+    sweep_price = 0.0
+    sweep_valid = false
+    
+    // Get 20-bar lookback range (called unconditionally for Pine Script consistency)
+    prev_high = ta.highest(high[1], 20)
+    prev_low = ta.lowest(low[1], 20)
+    
+    if bar_index >= 20
+        // Bearish sweep: high breaks previous high + rejection
+        // Additional validation: must have significant move before sweep (zig-zag confirmation)
+        wick_high = high - close
+        if high > prev_high and close < high - pips_to_price(rejection_pips) and wick_high >= pips_to_price(rejection_pips)
+            // Zig-zag validation: check for price movement before sweep
+            // Look for at least 3 bars of upward movement leading to the sweep
+            upward_movement = 0
+            for j = 1 to math.min(5, bar_index)
+                if high[j-1] > high[j] or low[j-1] > low[j]
+                    upward_movement += 1
+            
+            // Only valid if there was clear upward movement (zig-zag pattern)
+            if upward_movement >= 2
+                sweep_type := "bear_sweep"
+                sweep_price := high
+                sweep_valid := true
+        
+        // Bullish sweep: low breaks previous low + rejection
+        // Additional validation: must have significant move before sweep (zig-zag confirmation)
+        wick_low = close - low
+        if low < prev_low and close > low + pips_to_price(rejection_pips) and wick_low >= pips_to_price(rejection_pips)
+            // Zig-zag validation: check for price movement before sweep
+            // Look for at least 3 bars of downward movement leading to the sweep
+            downward_movement = 0
+            for j = 1 to math.min(5, bar_index)
+                if high[j-1] < high[j] or low[j-1] < low[j]
+                    downward_movement += 1
+            
+            // Only valid if there was clear downward movement (zig-zag pattern)
+            if downward_movement >= 2
+                sweep_type := "bull_sweep"
+                sweep_price := low
+                sweep_valid := true
+    
+    [sweep_valid, sweep_type, sweep_price]
+
+// ============================================================================
+// FAIR VALUE GAP (FVG) DETECTION
+// ============================================================================
+
+detect_fvg() =>
+    fvg_valid = false
+    fvg_type = ""
+    fvg_bottom = 0.0
+    fvg_top = 0.0
+    
+    if bar_index >= 2
+        // 3-bar pattern: c1 (old), c2 (displacement), c3 (current/new)
+        c1_high = high[2]
+        c1_low = low[2]
+        c2_high = high[1]
+        c2_low = low[1]
+        c2_close = close[1]
+        c2_open = open[1]
+        c3_high = high
+        c3_low = low
+        
+        // Bullish FVG: c3.low > c1.high
+        if c3_low > c1_high
+            gap_size = c3_low - c1_high
+            gap_pips = price_to_pips(gap_size)
+            
+            if gap_pips >= min_FVG_pips
+                // Validate displacement candle (c2) - bullish direction and size
+                c2_body = math.abs(c2_close - c2_open)
+                c2_is_bullish = c2_close > c2_open
+                min_gap_price = pips_to_price(min_FVG_pips)
+                required_c2_size = DISPLACEMENT_CANDLE_MIN_SIZE_RATIO * min_gap_price
+                
+                if c2_is_bullish and c2_body >= required_c2_size
+                    fvg_valid := true
+                    fvg_type := "bullish"
+                    fvg_bottom := c1_high
+                    fvg_top := c3_low
+        
+        // Bearish FVG: c3.high < c1.low
+        if c3_high < c1_low
+            gap_size = c1_low - c3_high
+            gap_pips = price_to_pips(gap_size)
+            
+            if gap_pips >= min_FVG_pips
+                // Validate displacement candle (c2) - bearish direction and size
+                c2_body = math.abs(c2_close - c2_open)
+                c2_is_bearish = c2_close < c2_open
+                min_gap_price = pips_to_price(min_FVG_pips)
+                required_c2_size = DISPLACEMENT_CANDLE_MIN_SIZE_RATIO * min_gap_price
+                
+                if c2_is_bearish and c2_body >= required_c2_size
+                    fvg_valid := true
+                    fvg_type := "bearish"
+                    fvg_bottom := c3_high
+                    fvg_top := c1_low
+    
+    [fvg_valid, fvg_type, fvg_bottom, fvg_top]
+
+// ============================================================================
+// MARKET STRUCTURE SHIFT (MSS) DETECTION
+// ============================================================================
+
+// Check if MSS occurred after sweep (using array-based approach for historical data)
+// MSS = Market Structure Shift confirming the sweep direction
+check_mss_after_sweep(sweep_bar_index, current_bar_index, sweep_type, sweep_low, sweep_high) =>
+    mss_confirmed = false
+    
+    if current_bar_index > sweep_bar_index
+        bars_since_sweep = current_bar_index - sweep_bar_index
+        
+        if bars_since_sweep > 0 and bars_since_sweep <= mss_lookforward_bars
+            // For bear_sweep: need a clear lower low after sweep (confirming bearish structure)
+            // Must be a significant break, not just a minor dip
+            if sweep_type == "bear_sweep"
+                // Check if any bar between sweep and current made a significant lower low
+                for i = 1 to bars_since_sweep
+                    check_low = low[bars_since_sweep - i]
+                    // Require clear break below sweep low (not just a tick)
+                    if check_low < sweep_low - pips_to_price(0.5)
+                        mss_confirmed := true
+                        break
+            
+            // For bull_sweep: need a clear higher high after sweep (confirming bullish structure)
+            // Must be a significant break, not just a minor spike
+            if sweep_type == "bull_sweep"
+                // Check if any bar between sweep and current made a significant higher high
+                for i = 1 to bars_since_sweep
+                    check_high = high[bars_since_sweep - i]
+                    // Require clear break above sweep high (not just a tick)
+                    if check_high > sweep_high + pips_to_price(0.5)
+                        mss_confirmed := true
+                        break
+    
+    mss_confirmed
+
+// ============================================================================
+// STATE VARIABLES (using var for persistence)
+// ============================================================================
+
+var int trades_today = 0
+var float daily_pnl = 0.0
+var int current_day = 0
+var array<int> sweep_bar_indices = array.new<int>()
+var array<string> sweep_types = array.new<string>()
+var array<float> sweep_prices = array.new<float>()
+var array<string> sweep_trends = array.new<string>()
+var array<bool> sweep_used = array.new<bool>()
+
+// Arrays to track pending setups (all conditions met, waiting for entry touch)
+var array<int> pending_setup_bars = array.new<int>()
+var array<float> pending_entry_prices = array.new<float>()
+var array<float> pending_sl_prices = array.new<float>()
+var array<float> pending_tp_prices = array.new<float>()
+var array<string> pending_directions = array.new<string>()
+var array<float> pending_RR = array.new<float>()
+
+// Arrays to track active trades for outcome visualization
+var array<int> trade_entry_bars = array.new<int>()
+var array<float> trade_entry_prices = array.new<float>()
+var array<float> trade_sl_prices = array.new<float>()
+var array<float> trade_tp_prices = array.new<float>()
+var array<string> trade_directions = array.new<string>()
+var array<bool> trade_active = array.new<bool>()
+
+// Reset daily counters
+new_day = dayofmonth(time) != current_day
+if new_day
+    current_day := dayofmonth(time)
+    trades_today := 0
+    daily_pnl := 0.0
+
+// ============================================================================
+// MAIN LOGIC - SWEEP DETECTION & STORAGE
+// ============================================================================
+
+// Detect sweep on current bar
+[sweep_valid, sweep_type, sweep_price] = detect_liquidity_sweep()
+
+current_trend = detect_trend()
+
+// Store sweep if valid and confirmed bar
+if sweep_valid and barstate.isconfirmed
+    array.push(sweep_bar_indices, bar_index)
+    array.push(sweep_types, sweep_type)
+    array.push(sweep_prices, sweep_price)
+    array.push(sweep_trends, current_trend)
+    array.push(sweep_used, false)
+    
+    if debug_logging
+        log.info("Sweep detected at bar " + str.tostring(bar_index) + ": " + sweep_type + " @ " + str.tostring(sweep_price))
+    
+    // Show sweep marker
+    if show_sweep_markers
+        marker_color = sweep_type == "bull_sweep" ? color.green : color.red
+        marker_style = sweep_type == "bull_sweep" ? label.style_triangleup : label.style_triangledown
+        marker_y = sweep_type == "bull_sweep" ? low : high
+        label.new(bar_index, marker_y, "S", color=marker_color, style=marker_style, textcolor=color.white, size=size.tiny)
+
+// Clean up old sweeps (older than lookforward window)
+if array.size(sweep_bar_indices) > 0
+    for i = array.size(sweep_bar_indices) - 1 to 0
+        if bar_index - array.get(sweep_bar_indices, i) > mss_lookforward_bars + 10
+            array.remove(sweep_bar_indices, i)
+            array.remove(sweep_types, i)
+            array.remove(sweep_prices, i)
+            array.remove(sweep_trends, i)
+            array.remove(sweep_used, i)
+
+// ============================================================================
+// MAIN LOGIC - ENTRY SIGNAL GENERATION
+// ============================================================================
+
+// Detect FVG on current bar
+[fvg_valid, fvg_type, fvg_bottom, fvg_top] = detect_fvg()
+
+// Entry signal variables
+var string signal_type = ""
+var float entry_price = 0.0
+var float sl_price = 0.0
+var float tp_price = 0.0
+var float used_RR = 0.0
+var bool show_signal = false
+
+signal_type := ""
+show_signal := false
+
+// Check confluence for entry
+if fvg_valid and barstate.isconfirmed and is_trading_session() and trades_today < max_trades_per_day
+    
+    // Check each recent sweep for MSS confirmation
+    if array.size(sweep_bar_indices) > 0
+        for i = array.size(sweep_bar_indices) - 1 to 0
+            sweep_idx = array.get(sweep_bar_indices, i)
+            s_type = array.get(sweep_types, i)
+            s_price = array.get(sweep_prices, i)
+            s_trend = array.get(sweep_trends, i)
+            s_used = array.get(sweep_used, i)
+            
+            // Skip if already used
+            if s_used
+                continue
+            
+            // Skip if too old
+            if bar_index - sweep_idx > mss_lookforward_bars
+                continue
+            
+            // Check trend alignment if enabled
+            if enable_trend_filter and current_trend != "neutral" and s_trend != current_trend
+                continue
+            
+            // Check if FVG direction matches sweep
+            expected_fvg = s_type == "bull_sweep" ? "bullish" : "bearish"
+            if fvg_type != expected_fvg
+                continue
+            
+            // Check MSS confirmation
+            sweep_low_val = s_type == "bear_sweep" ? s_price : low[bar_index - sweep_idx]
+            sweep_high_val = s_type == "bull_sweep" ? s_price : high[bar_index - sweep_idx]
+            
+            mss_ok = check_mss_after_sweep(sweep_idx, bar_index, s_type, sweep_low_val, sweep_high_val)
+            
+            if mss_ok
+                // Mark sweep as used
+                array.set(sweep_used, i, true)
+                
+                // Calculate entry, SL, TP
+                current_RR = get_RR_ratio()
+                
+                // Declare sl_distance_pips before conditional blocks
+                sl_distance_pips = 0.0
+                tp_distance = 0.0
+                
+                if fvg_type == "bullish"
+                    entry_price := fvg_bottom + pips_to_price(spread_pips)
+                    sl_price := s_price - pips_to_price(buffer_pips)
+                    sl_distance_pips := price_to_pips(entry_price - sl_price)
+                    tp_distance := sl_distance_pips * current_RR
+                    // Ensure TP is at least $10
+                    if tp_distance < 10.0
+                        tp_distance := 10.0
+                    tp_price := entry_price + pips_to_price(tp_distance)
+                    signal_type := "BUY"
+                else
+                    entry_price := fvg_top - pips_to_price(spread_pips)
+                    sl_price := s_price + pips_to_price(buffer_pips)
+                    sl_distance_pips := price_to_pips(sl_price - entry_price)
+                    tp_distance := sl_distance_pips * current_RR
+                    // Ensure TP is at least $10
+                    if tp_distance < 10.0
+                        tp_distance := 10.0
+                    tp_price := entry_price - pips_to_price(tp_distance)
+                    signal_type := "SELL"
+                
+                // Filter: Skip if stop loss is less than $2 (too tight)
+                if sl_distance_pips < 2.0
+                    if debug_logging
+                        log.info("TRADE REJECTED: SL too small ($" + str.tostring(sl_distance_pips, "#.##") + " < $2.00)")
+                    continue
+                
+                // Filter: Skip if stop loss risk is more than max_sl_risk (low quality trade for gold)
+                if sl_distance_pips > max_sl_risk
+                    if debug_logging
+                        log.info("TRADE REJECTED: SL too large ($" + str.tostring(sl_distance_pips, "#.##") + " > $" + str.tostring(max_sl_risk, "#.##") + ")")
+                    continue
+                
+                used_RR := current_RR
+                
+                // Store as pending setup (wait for entry touch)
+                array.push(pending_setup_bars, bar_index)
+                array.push(pending_entry_prices, entry_price)
+                array.push(pending_sl_prices, sl_price)
+                array.push(pending_tp_prices, tp_price)
+                array.push(pending_directions, signal_type)
+                array.push(pending_RR, current_RR)
+                
+                if debug_logging
+                    log.info("PENDING SETUP: " + signal_type + " at bar " + str.tostring(bar_index) + ", Entry: " + str.tostring(entry_price) + ", SL: " + str.tostring(sl_price) + " ($" + str.tostring(sl_distance_pips, "#.##") + " risk), TP: " + str.tostring(tp_price) + ", RR: " + str.tostring(current_RR, "#.##"))
+                
+                if show_mss_markers
+                    mss_marker_y = fvg_type == "bullish" ? low : high
+                    label.new(bar_index, mss_marker_y, "MSS", color=color.blue, style=label.style_circle, textcolor=color.white, size=size.tiny)
+                
+                break
+
+// ============================================================================
+// CHECK PENDING SETUPS FOR ENTRY TOUCH
+// ============================================================================
+
+// Check if price has touched any pending setup entry levels
+if array.size(pending_setup_bars) > 0 and barstate.isconfirmed
+    for i = array.size(pending_setup_bars) - 1 to 0
+        p_bar = array.get(pending_setup_bars, i)
+        p_entry = array.get(pending_entry_prices, i)
+        p_sl = array.get(pending_sl_prices, i)
+        p_tp = array.get(pending_tp_prices, i)
+        p_direction = array.get(pending_directions, i)
+        p_rr = array.get(pending_RR, i)
+        
+        // Remove if too old (30 bars without entry touch)
+        if bar_index - p_bar > 30
+            array.remove(pending_setup_bars, i)
+            array.remove(pending_entry_prices, i)
+            array.remove(pending_sl_prices, i)
+            array.remove(pending_tp_prices, i)
+            array.remove(pending_directions, i)
+            array.remove(pending_RR, i)
+            if debug_logging
+                log.info("SETUP EXPIRED: " + p_direction + " setup from bar " + str.tostring(p_bar) + " expired without entry touch")
+            continue
+        
+        // Check if entry level was touched
+        entry_touched = false
+        if p_direction == "BUY"
+            // For BUY, check if low touched or went below entry
+            entry_touched := low <= p_entry
+        else
+            // For SELL, check if high touched or went above entry
+            entry_touched := high >= p_entry
+        
+        // If entry was touched, activate the trade
+        if entry_touched
+            // Mark as active trade
+            show_signal := true
+            signal_type := p_direction
+            entry_price := p_entry
+            sl_price := p_sl
+            tp_price := p_tp
+            used_RR := p_rr
+            trades_today += 1
+            
+            // Store trade for outcome tracking
+            array.push(trade_entry_bars, bar_index)
+            array.push(trade_entry_prices, entry_price)
+            array.push(trade_sl_prices, sl_price)
+            array.push(trade_tp_prices, tp_price)
+            array.push(trade_directions, signal_type)
+            array.push(trade_active, true)
+            
+            // Remove from pending
+            array.remove(pending_setup_bars, i)
+            array.remove(pending_entry_prices, i)
+            array.remove(pending_sl_prices, i)
+            array.remove(pending_tp_prices, i)
+            array.remove(pending_directions, i)
+            array.remove(pending_RR, i)
+            
+            if debug_logging
+                log.info("ENTRY TRIGGERED: " + signal_type + " at bar " + str.tostring(bar_index) + " (setup from bar " + str.tostring(p_bar) + "), Entry: " + str.tostring(entry_price) + ", SL: " + str.tostring(sl_price) + ", TP: " + str.tostring(tp_price))
+            
+            // Only activate one setup per bar
+            break
+
+// ============================================================================
+// TRADE OUTCOME TRACKING
+// ============================================================================
+
+// Check active trades for TP/SL hits (removed time-based exit)
+if array.size(trade_entry_bars) > 0
+    for i = array.size(trade_entry_bars) - 1 to 0
+        if array.get(trade_active, i)
+            entry_bar = array.get(trade_entry_bars, i)
+            entry_p = array.get(trade_entry_prices, i)
+            sl_p = array.get(trade_sl_prices, i)
+            tp_p = array.get(trade_tp_prices, i)
+            direction = array.get(trade_directions, i)
+            
+            // Check for TP or SL hit
+            tp_hit = false
+            sl_hit = false
+            
+            if direction == "BUY"
+                tp_hit := high >= tp_p
+                sl_hit := low <= sl_p
+            else
+                tp_hit := low <= tp_p
+                sl_hit := high >= sl_p
+            
+            // Draw outcome line only when TP or SL is hit
+            if tp_hit or sl_hit
+                array.set(trade_active, i, false)
+                exit_bar = bar_index
+                exit_price = tp_hit ? tp_p : sl_p
+                
+                // Determine outcome and color
+                outcome_color = tp_hit ? color.green : color.red
+                outcome_text = tp_hit ? "TP" : "SL"
+                
+                // Draw line from entry to exit
+                line.new(entry_bar, entry_p, exit_bar, exit_price, color=outcome_color, width=2, style=line.style_solid)
+                
+                // Add outcome label at exit (no pip amounts)
+                label.new(exit_bar, exit_price, outcome_text, color=outcome_color, textcolor=color.white, size=size.tiny, style=label.style_label_left)
+
+// ============================================================================
+// VISUAL DISPLAY
+// ============================================================================
+
+// Draw FVG box
+if fvg_valid and show_fvg_boxes and barstate.isconfirmed
+    fvg_color = fvg_type == "bullish" ? color.new(color.green, 85) : color.new(color.red, 85)
+    fvg_border = fvg_type == "bullish" ? color.green : color.red
+    box.new(bar_index - 2, fvg_top, bar_index + 5, fvg_bottom, border_color=fvg_border, bgcolor=fvg_color, border_width=1)
+
+// Draw Entry Signal
+if show_signal
+    // Small triangle signal (green below for buy, red above for sell)
+    // Position triangles away from wick to avoid overlap
+    signal_color = signal_type == "BUY" ? color.green : color.red
+    candle_range = high - low
+    signal_y = signal_type == "BUY" ? low - candle_range * 0.5 : high + candle_range * 0.5
+    signal_style = signal_type == "BUY" ? label.style_triangleup : label.style_triangledown
+    label.new(bar_index, signal_y, "", color=signal_color, style=signal_style, size=size.tiny)
+    
+    // Entry, SL, and TP markers with small lines and text
+    // Entry line and label
+    line.new(bar_index, entry_price, bar_index + 3, entry_price, color=color.blue, width=1, style=line.style_solid)
+    label.new(bar_index + 3, entry_price, "E", color=color.blue, textcolor=color.white, size=size.tiny, style=label.style_label_left)
+    
+    // SL line and label
+    line.new(bar_index, sl_price, bar_index + 3, sl_price, color=color.red, width=1, style=line.style_dashed)
+    label.new(bar_index + 3, sl_price, "SL", color=color.red, textcolor=color.white, size=size.tiny, style=label.style_label_left)
+    
+    // TP line and label
+    line.new(bar_index, tp_price, bar_index + 3, tp_price, color=color.green, width=1, style=line.style_dashed)
+    label.new(bar_index + 3, tp_price, "TP", color=color.green, textcolor=color.white, size=size.tiny, style=label.style_label_left)
+
+// ============================================================================
+// DASHBOARD DISPLAY
+// ============================================================================
+
+// Create simple table for stats
+var table stats_table = table.new(position.top_right, 2, 5, border_width=1)
+
+if barstate.islast
+    table.cell(stats_table, 0, 0, "Trades Today:", text_color=color.white, bgcolor=color.gray)
+    table.cell(stats_table, 1, 0, str.tostring(trades_today), text_color=color.white, bgcolor=color.gray)
+    
+    table.cell(stats_table, 0, 1, "Session:", text_color=color.white, bgcolor=color.gray)
+    session_text = is_trading_session() ? "ACTIVE" : "CLOSED"
+    session_color = is_trading_session() ? color.green : color.red
+    table.cell(stats_table, 1, 1, session_text, text_color=color.white, bgcolor=session_color)
+    
+    table.cell(stats_table, 0, 2, "Trend:", text_color=color.white, bgcolor=color.gray)
+    table.cell(stats_table, 1, 2, current_trend, text_color=color.white, bgcolor=color.gray)
+    
+    table.cell(stats_table, 0, 3, "Active Sweeps:", text_color=color.white, bgcolor=color.gray)
+    table.cell(stats_table, 1, 3, str.tostring(array.size(sweep_bar_indices)), text_color=color.white, bgcolor=color.gray)
+    
+    table.cell(stats_table, 0, 4, "Max Daily Loss:", text_color=color.white, bgcolor=color.gray)
+    table.cell(stats_table, 1, 4, str.tostring(max_daily_loss_percent, "#.#") + "%", text_color=color.white, bgcolor=color.gray)
+
+// Plot invisible values for strategy tester compatibility
+plot(show_signal and signal_type == "BUY" ? 1 : 0, "Buy Signal", display=display.none)
+plot(show_signal and signal_type == "SELL" ? 1 : 0, "Sell Signal", display=display.none)

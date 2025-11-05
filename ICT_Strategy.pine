@@ -1,0 +1,322 @@
+//@version=5
+strategy("ICT Trading Strategy - Backtest", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.cash_per_contract, commission_value=7, slippage=3)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+
+// Risk Management
+risk_percent = input.float(1.5, "Risk per Trade (%)", minval=0.1, maxval=10.0, step=0.1, group="Risk Management")
+max_trades_per_day = input.int(10, "Max Trades per Day", minval=1, maxval=100, group="Risk Management")
+max_daily_loss_percent = input.float(5.0, "Max Daily Loss %", minval=0, maxval=50, step=0.5, group="Risk Management")
+
+// ICT Parameters
+min_FVG_pips = input.float(2.0, "Minimum FVG Size (pips)", minval=0.5, maxval=50.0, step=0.1, group="ICT Parameters")
+rejection_pips = input.float(0.5, "Sweep Rejection (pips)", minval=0.1, maxval=10.0, step=0.1, group="ICT Parameters")
+buffer_pips = input.float(2.0, "Stop Loss Buffer (pips)", minval=0.1, maxval=20.0, step=0.1, group="ICT Parameters")
+DISPLACEMENT_CANDLE_MIN_SIZE_RATIO = input.float(0.5, "Displacement Candle Min Size Ratio", minval=0.1, maxval=2.0, step=0.1, group="ICT Parameters")
+
+// Risk-Reward Settings
+min_RR = input.float(3.0, "Minimum R:R", minval=1.0, maxval=10.0, step=0.1, group="Risk-Reward")
+max_RR = input.float(5.0, "Maximum R:R", minval=1.0, maxval=10.0, step=0.1, group="Risk-Reward")
+use_random_RR = input.bool(false, "Use Random R:R (between min/max)", group="Risk-Reward")
+fixed_RR = input.float(3.0, "Fixed R:R (if random disabled)", minval=1.0, maxval=10.0, step=0.1, group="Risk-Reward")
+
+// Trading Sessions (UTC)
+london_open_hour = input.int(7, "London Open Hour (UTC)", minval=0, maxval=23, group="Sessions")
+london_close_hour = input.int(16, "London Close Hour (UTC)", minval=0, maxval=23, group="Sessions")
+ny_open_hour = input.int(12, "NY Open Hour (UTC)", minval=0, maxval=23, group="Sessions")
+ny_close_hour = input.int(21, "NY Close Hour (UTC)", minval=0, maxval=23, group="Sessions")
+
+// Trend Alignment
+enable_trend_filter = input.bool(false, "Enable Trend Alignment", group="Trend Filter")
+trend_lookback = input.int(32, "Trend Lookback Bars", minval=10, maxval=200, group="Trend Filter")
+
+// MSS Settings
+mss_lookforward_bars = input.int(30, "MSS Look-forward Bars", minval=5, maxval=100, group="MSS Detection")
+
+// Display
+spread_pips = input.float(0.6, "Spread (pips)", minval=0, maxval=10.0, step=0.1, group="Display")
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+pips_to_price(pips) => pips * 0.0001
+price_to_pips(price_diff) => price_diff / 0.0001
+
+is_trading_session() =>
+    current_hour = hour(time)
+    in_london = current_hour >= london_open_hour and current_hour <= london_close_hour
+    in_ny = current_hour >= ny_open_hour and current_hour <= ny_close_hour
+    in_london or in_ny
+
+get_RR_ratio() =>
+    if use_random_RR
+        seed = bar_index % 1000
+        min_RR + (seed / 1000.0) * (max_RR - min_RR)
+    else
+        fixed_RR
+
+// ============================================================================
+// TREND DETECTION
+// ============================================================================
+
+detect_trend() =>
+    recent_bars = 8
+    older_bars = 8
+    recent_high = ta.highest(high, recent_bars)
+    recent_low = ta.lowest(low, recent_bars)
+    older_high = ta.highest(high[recent_bars], older_bars)
+    older_low = ta.lowest(low[recent_bars], older_bars)
+    trend = "neutral"
+    if bar_index >= trend_lookback
+        if recent_high > older_high and recent_low > older_low
+            trend := "bullish"
+        else if recent_high < older_high and recent_low < older_low
+            trend := "bearish"
+    trend
+
+// ============================================================================
+// LIQUIDITY SWEEP DETECTION
+// ============================================================================
+
+detect_liquidity_sweep() =>
+    sweep_type = ""
+    sweep_price = 0.0
+    sweep_valid = false
+    prev_high = ta.highest(high[1], 20)
+    prev_low = ta.lowest(low[1], 20)
+    if bar_index >= 20
+        wick_high = high - close
+        if high > prev_high and close < high - pips_to_price(rejection_pips) and wick_high >= pips_to_price(rejection_pips)
+            sweep_type := "bear_sweep"
+            sweep_price := high
+            sweep_valid := true
+        wick_low = close - low
+        if low < prev_low and close > low + pips_to_price(rejection_pips) and wick_low >= pips_to_price(rejection_pips)
+            sweep_type := "bull_sweep"
+            sweep_price := low
+            sweep_valid := true
+    [sweep_valid, sweep_type, sweep_price]
+
+// ============================================================================
+// FAIR VALUE GAP (FVG) DETECTION
+// ============================================================================
+
+detect_fvg() =>
+    fvg_valid = false
+    fvg_type = ""
+    fvg_bottom = 0.0
+    fvg_top = 0.0
+    if bar_index >= 2
+        c1_high = high[2]
+        c1_low = low[2]
+        c2_high = high[1]
+        c2_low = low[1]
+        c2_close = close[1]
+        c2_open = open[1]
+        c3_high = high
+        c3_low = low
+        if c3_low > c1_high
+            gap_size = c3_low - c1_high
+            gap_pips = price_to_pips(gap_size)
+            if gap_pips >= min_FVG_pips
+                c2_body = math.abs(c2_close - c2_open)
+                c2_is_bullish = c2_close > c2_open
+                min_gap_price = pips_to_price(min_FVG_pips)
+                required_c2_size = DISPLACEMENT_CANDLE_MIN_SIZE_RATIO * min_gap_price
+                if c2_is_bullish and c2_body >= required_c2_size
+                    fvg_valid := true
+                    fvg_type := "bullish"
+                    fvg_bottom := c1_high
+                    fvg_top := c3_low
+        if c3_high < c1_low
+            gap_size = c1_low - c3_high
+            gap_pips = price_to_pips(gap_size)
+            if gap_pips >= min_FVG_pips
+                c2_body = math.abs(c2_close - c2_open)
+                c2_is_bearish = c2_close < c2_open
+                min_gap_price = pips_to_price(min_FVG_pips)
+                required_c2_size = DISPLACEMENT_CANDLE_MIN_SIZE_RATIO * min_gap_price
+                if c2_is_bearish and c2_body >= required_c2_size
+                    fvg_valid := true
+                    fvg_type := "bearish"
+                    fvg_bottom := c3_high
+                    fvg_top := c1_low
+    [fvg_valid, fvg_type, fvg_bottom, fvg_top]
+
+// ============================================================================
+// MARKET STRUCTURE SHIFT (MSS) DETECTION
+// ============================================================================
+
+check_mss_after_sweep(sweep_bar_index, current_bar_index, sweep_type, sweep_low, sweep_high) =>
+    mss_confirmed = false
+    if current_bar_index > sweep_bar_index
+        bars_since_sweep = current_bar_index - sweep_bar_index
+        if bars_since_sweep > 0 and bars_since_sweep <= mss_lookforward_bars
+            if sweep_type == "bear_sweep"
+                for i = 1 to bars_since_sweep
+                    if low[bars_since_sweep - i] < sweep_low
+                        mss_confirmed := true
+                        break
+            if sweep_type == "bull_sweep"
+                for i = 1 to bars_since_sweep
+                    if high[bars_since_sweep - i] > sweep_high
+                        mss_confirmed := true
+                        break
+    mss_confirmed
+
+// ============================================================================
+// STATE VARIABLES
+// ============================================================================
+
+var int trades_today = 0
+var float daily_pnl = 0.0
+var int current_day = 0
+var array<int> sweep_bar_indices = array.new<int>()
+var array<string> sweep_types = array.new<string>()
+var array<float> sweep_prices = array.new<float>()
+var array<string> sweep_trends = array.new<string>()
+var array<bool> sweep_used = array.new<bool>()
+
+// Reset daily counters
+new_day = dayofmonth(time) != current_day
+if new_day
+    current_day := dayofmonth(time)
+    trades_today := 0
+    daily_pnl := 0.0
+
+// ============================================================================
+// MAIN LOGIC - SWEEP DETECTION & STORAGE
+// ============================================================================
+
+[sweep_valid, sweep_type, sweep_price] = detect_liquidity_sweep()
+current_trend = detect_trend()
+
+if sweep_valid and barstate.isconfirmed
+    array.push(sweep_bar_indices, bar_index)
+    array.push(sweep_types, sweep_type)
+    array.push(sweep_prices, sweep_price)
+    array.push(sweep_trends, current_trend)
+    array.push(sweep_used, false)
+
+// Clean up old sweeps
+if array.size(sweep_bar_indices) > 0
+    for i = array.size(sweep_bar_indices) - 1 to 0
+        if bar_index - array.get(sweep_bar_indices, i) > mss_lookforward_bars + 10
+            array.remove(sweep_bar_indices, i)
+            array.remove(sweep_types, i)
+            array.remove(sweep_prices, i)
+            array.remove(sweep_trends, i)
+            array.remove(sweep_used, i)
+
+// ============================================================================
+// ENTRY SIGNAL GENERATION
+// ============================================================================
+
+[fvg_valid, fvg_type, fvg_bottom, fvg_top] = detect_fvg()
+
+var string signal_type = ""
+var float entry_price = 0.0
+var float sl_price = 0.0
+var float tp_price = 0.0
+var float used_RR = 0.0
+var bool show_signal = false
+
+signal_type := ""
+show_signal := false
+
+// Check daily loss limit
+if strategy.opentrades == 0
+    daily_pnl := 0.0
+    for i = 0 to strategy.closedtrades - 1
+        trade_time = strategy.closedtrades.exit_time(i)
+        if dayofmonth(trade_time) == current_day
+            daily_pnl += strategy.closedtrades.profit(i)
+
+daily_loss_limit_hit = daily_pnl < -(strategy.initial_capital * max_daily_loss_percent / 100)
+
+// Check confluence for entry
+if fvg_valid and barstate.isconfirmed and is_trading_session() and trades_today < max_trades_per_day and strategy.opentrades == 0 and not daily_loss_limit_hit
+    if array.size(sweep_bar_indices) > 0
+        for i = array.size(sweep_bar_indices) - 1 to 0
+            sweep_idx = array.get(sweep_bar_indices, i)
+            s_type = array.get(sweep_types, i)
+            s_price = array.get(sweep_prices, i)
+            s_trend = array.get(sweep_trends, i)
+            s_used = array.get(sweep_used, i)
+            if s_used
+                continue
+            if bar_index - sweep_idx > mss_lookforward_bars
+                continue
+            if enable_trend_filter and current_trend != "neutral" and s_trend != current_trend
+                continue
+            expected_fvg = s_type == "bull_sweep" ? "bullish" : "bearish"
+            if fvg_type != expected_fvg
+                continue
+            sweep_low_val = s_type == "bear_sweep" ? s_price : low[bar_index - sweep_idx]
+            sweep_high_val = s_type == "bull_sweep" ? s_price : high[bar_index - sweep_idx]
+            mss_ok = check_mss_after_sweep(sweep_idx, bar_index, s_type, sweep_low_val, sweep_high_val)
+            if mss_ok
+                array.set(sweep_used, i, true)
+                current_RR = get_RR_ratio()
+                if fvg_type == "bullish"
+                    entry_price := fvg_bottom + pips_to_price(spread_pips)
+                    sl_price := s_price - pips_to_price(buffer_pips)
+                    sl_distance_pips = price_to_pips(entry_price - sl_price)
+                    tp_price := entry_price + pips_to_price(sl_distance_pips * current_RR)
+                    signal_type := "BUY"
+                else
+                    entry_price := fvg_top - pips_to_price(spread_pips)
+                    sl_price := s_price + pips_to_price(buffer_pips)
+                    sl_distance_pips = price_to_pips(sl_price - entry_price)
+                    tp_price := entry_price - pips_to_price(sl_distance_pips * current_RR)
+                    signal_type := "SELL"
+                used_RR := current_RR
+                show_signal := true
+                trades_today += 1
+                break
+
+// ============================================================================
+// STRATEGY EXECUTION
+// ============================================================================
+
+if show_signal
+    if signal_type == "BUY"
+        strategy.entry("Long", strategy.long, stop=entry_price, comment="ICT Buy")
+        strategy.exit("Exit Long", "Long", stop=sl_price, limit=tp_price, comment="SL/TP")
+    else if signal_type == "SELL"
+        strategy.entry("Short", strategy.short, stop=entry_price, comment="ICT Sell")
+        strategy.exit("Exit Short", "Short", stop=sl_price, limit=tp_price, comment="SL/TP")
+
+// ============================================================================
+// VISUAL DISPLAY
+// ============================================================================
+
+// Plot entry, SL, TP for visualization
+plot(show_signal and signal_type == "BUY" ? entry_price : na, "Buy Entry", color=color.blue, style=plot.style_circles, linewidth=2)
+plot(show_signal and signal_type == "SELL" ? entry_price : na, "Sell Entry", color=color.orange, style=plot.style_circles, linewidth=2)
+plot(show_signal ? sl_price : na, "Stop Loss", color=color.red, style=plot.style_cross, linewidth=1)
+plot(show_signal ? tp_price : na, "Take Profit", color=color.green, style=plot.style_cross, linewidth=1)
+
+// Dashboard
+var table stats_table = table.new(position.top_right, 2, 6, border_width=1)
+
+if barstate.islast
+    table.cell(stats_table, 0, 0, "Trades Today:", text_color=color.white, bgcolor=color.gray)
+    table.cell(stats_table, 1, 0, str.tostring(trades_today), text_color=color.white, bgcolor=color.gray)
+    table.cell(stats_table, 0, 1, "Session:", text_color=color.white, bgcolor=color.gray)
+    session_text = is_trading_session() ? "ACTIVE" : "CLOSED"
+    session_color = is_trading_session() ? color.green : color.red
+    table.cell(stats_table, 1, 1, session_text, text_color=color.white, bgcolor=session_color)
+    table.cell(stats_table, 0, 2, "Open Trades:", text_color=color.white, bgcolor=color.gray)
+    table.cell(stats_table, 1, 2, str.tostring(strategy.opentrades), text_color=color.white, bgcolor=color.gray)
+    table.cell(stats_table, 0, 3, "Total Trades:", text_color=color.white, bgcolor=color.gray)
+    table.cell(stats_table, 1, 3, str.tostring(strategy.closedtrades), text_color=color.white, bgcolor=color.gray)
+    table.cell(stats_table, 0, 4, "Win Rate:", text_color=color.white, bgcolor=color.gray)
+    win_rate = strategy.closedtrades > 0 ? (strategy.wintrades / strategy.closedtrades * 100) : 0
+    table.cell(stats_table, 1, 4, str.tostring(win_rate, "#.##") + "%", text_color=color.white, bgcolor=color.gray)
+    table.cell(stats_table, 0, 5, "Daily PnL:", text_color=color.white, bgcolor=color.gray)
+    pnl_color = daily_pnl >= 0 ? color.green : color.red
+    table.cell(stats_table, 1, 5, str.tostring(daily_pnl, "#.##"), text_color=color.white, bgcolor=pnl_color)

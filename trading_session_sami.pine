@@ -14,8 +14,8 @@ newyork_color = input.color(color.new(color.green, 85), "New York Color", group=
 // Session times (in UTC)
 // Asia: 00:00-09:00 UTC
 // London: 07:00-16:00 UTC  
-// New York: 12:00-21:00 UTC (13:00-22:00 in UTC-5 = 12:00-21:00 UTC)
-// Note: User mentioned using New York Time (UTC-5), so we adjust accordingly
+// New York: 13:00-22:00 UTC (08:00-17:00 EST/EDT)
+// Note: User mentioned using New York Time (UTC-5), times are adjusted accordingly
 
 asia_session = "0000-0900"
 london_session = "0700-1600"

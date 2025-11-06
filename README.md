@@ -6,20 +6,35 @@ A comprehensive implementation of ICT (Inner Circle Trader) trading strategies w
 
 ```
 pinescript/
-├── README.md                  # This file - project overview
-├── ict_trader.py              # Python backtest implementation
-├── EURUSD15.csv               # Historical EURUSD 15-minute data
-├── equity_fixed.png           # Equity curve from Python backtest
-└── docs/                      # Complete documentation
-    ├── README.md              # Documentation overview & quick start
-    ├── CODE_REVIEW.md         # Detailed code analysis & realism assessment
-    ├── ICT_Strategy_EA.mq5    # MetaTrader 5 Expert Advisor
-    └── MT5_TESTING_GUIDE.md   # Complete MT5 testing guide
+├── README.md                         # This file - project overview
+├── trading_session_sami.pine         # TradingView Pine Script indicator
+├── TRADING_SESSION_SAMI_README.md    # Pine Script indicator documentation
+├── ict_trader.py                     # Python backtest implementation
+├── EURUSD15.csv                      # Historical EURUSD 15-minute data
+├── equity_fixed.png                  # Equity curve from Python backtest
+└── docs/                             # Complete documentation
+    ├── README.md                     # Documentation overview & quick start
+    ├── CODE_REVIEW.md                # Detailed code analysis & realism assessment
+    ├── ICT_Strategy_EA.mq5           # MetaTrader 5 Expert Advisor
+    └── MT5_TESTING_GUIDE.md          # Complete MT5 testing guide
 ```
 
 ## 🎯 What's Included
 
-### 1. Python Backtesting System (`ict_trader.py`)
+### 1. TradingView Pine Script Indicator (`trading_session_sami.pine`)
+
+A professional trading session indicator for TradingView featuring:
+
+- **Asia Session** - Blue colored box showing session high/low range
+- **London Session** - Orange colored box showing session high/low range  
+- **New York Session** - Green colored box showing session high/low range
+- **Session Labels** - Clear text labels identifying each session
+- **Real-time Updates** - Live high/low lines during active sessions
+- **Customizable** - Toggle sessions on/off, customize colors
+
+Perfect for session-based trading strategies, liquidity analysis, and ICT concepts. See [TRADING_SESSION_SAMI_README.md](TRADING_SESSION_SAMI_README.md) for complete documentation.
+
+### 2. Python Backtesting System (`ict_trader.py`)
 
 A complete ICT strategy implementation featuring:
 
@@ -38,7 +53,7 @@ A complete ICT strategy implementation featuring:
 
 ⚠️ **Important**: These results are **unrealistic** for live trading. See [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md) for detailed analysis.
 
-### 2. MetaTrader 5 Expert Advisor (`docs/ICT_Strategy_EA.mq5`)
+### 3. MetaTrader 5 Expert Advisor (`docs/ICT_Strategy_EA.mq5`)
 
 Production-ready MT5 implementation with:
 
@@ -55,7 +70,7 @@ Production-ready MT5 implementation with:
 - FVG confirmation requirement
 - Better cost modeling
 
-### 3. Comprehensive Documentation (`docs/`)
+### 4. Comprehensive Documentation (`docs/`)
 
 Complete guides covering:
 
@@ -83,6 +98,24 @@ Complete guides covering:
 - Common mistakes to avoid
 
 ## 🚀 Quick Start
+
+### TradingView Pine Script Indicator
+
+1. **Open TradingView**
+   - Go to https://www.tradingview.com
+   - Open any chart
+
+2. **Add the Indicator**
+   - Click "Pine Editor" at the bottom of the chart
+   - Copy the contents of `trading_session_sami.pine`
+   - Paste into the Pine Editor
+   - Click "Add to Chart"
+
+3. **Customize Settings** (optional)
+   - Click the indicator name on the chart
+   - Toggle sessions on/off
+   - Customize colors
+   - See [TRADING_SESSION_SAMI_README.md](TRADING_SESSION_SAMI_README.md) for details
 
 ### Python Backtesting
 

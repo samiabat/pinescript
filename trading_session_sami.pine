@@ -1,0 +1,140 @@
+//@version=5
+indicator("Trading Session SAMI", overlay=true, max_boxes_count=500, max_labels_count=500)
+
+// Input settings
+show_asia = input.bool(true, "Show Asia Session", group="Sessions")
+show_london = input.bool(true, "Show London Session", group="Sessions")
+show_newyork = input.bool(true, "Show New York Session", group="Sessions")
+
+// Session colors
+asia_color = input.color(color.new(color.blue, 85), "Asia Color", group="Colors")
+london_color = input.color(color.new(color.orange, 85), "London Color", group="Colors")
+newyork_color = input.color(color.new(color.green, 85), "New York Color", group="Colors")
+
+// Session times (in UTC)
+// Asia: 00:00-09:00 UTC
+// London: 07:00-16:00 UTC  
+// New York: 12:00-21:00 UTC (13:00-22:00 in UTC-5 = 12:00-21:00 UTC)
+// Note: User mentioned using New York Time (UTC-5), so we adjust accordingly
+
+asia_session = "0000-0900"
+london_session = "0700-1600"
+newyork_session = "1300-2200"  // 8:00-17:00 EST/EDT (UTC-5/-4) = 13:00-22:00 UTC
+
+// Session detection
+in_asia = time(timeframe.period, asia_session)
+in_london = time(timeframe.period, london_session)
+in_newyork = time(timeframe.period, newyork_session)
+
+// Variables to track session data
+var float asia_high = na
+var float asia_low = na
+var int asia_start_time = na
+var int asia_start_bar = na
+
+var float london_high = na
+var float london_low = na
+var int london_start_time = na
+var int london_start_bar = na
+
+var float newyork_high = na
+var float newyork_low = na
+var int newyork_start_time = na
+var int newyork_start_bar = na
+
+// Asia Session Logic
+if show_asia
+    if in_asia and not in_asia[1]
+        // Session started
+        asia_high := high
+        asia_low := low
+        asia_start_time := time
+        asia_start_bar := bar_index
+    else if in_asia
+        // Update session high/low
+        asia_high := math.max(asia_high, high)
+        asia_low := math.min(asia_low, low)
+    else if not in_asia and in_asia[1]
+        // Session ended, draw box
+        if not na(asia_start_bar) and not na(asia_high) and not na(asia_low)
+            box_right = bar_index
+            session_box = box.new(asia_start_bar, asia_high, box_right, asia_low, 
+                 border_color=color.new(color.blue, 50), 
+                 bgcolor=asia_color,
+                 border_width=1)
+            
+            // Add label
+            label.new(asia_start_bar + (box_right - asia_start_bar) / 2, asia_high, 
+                 "ASIA", 
+                 color=color.new(color.blue, 30),
+                 textcolor=color.white,
+                 style=label.style_label_down,
+                 size=size.small)
+
+// London Session Logic
+if show_london
+    if in_london and not in_london[1]
+        // Session started
+        london_high := high
+        london_low := low
+        london_start_time := time
+        london_start_bar := bar_index
+    else if in_london
+        // Update session high/low
+        london_high := math.max(london_high, high)
+        london_low := math.min(london_low, low)
+    else if not in_london and in_london[1]
+        // Session ended, draw box
+        if not na(london_start_bar) and not na(london_high) and not na(london_low)
+            box_right = bar_index
+            session_box = box.new(london_start_bar, london_high, box_right, london_low, 
+                 border_color=color.new(color.orange, 50), 
+                 bgcolor=london_color,
+                 border_width=1)
+            
+            // Add label
+            label.new(london_start_bar + (box_right - london_start_bar) / 2, london_high, 
+                 "LONDON", 
+                 color=color.new(color.orange, 30),
+                 textcolor=color.white,
+                 style=label.style_label_down,
+                 size=size.small)
+
+// New York Session Logic
+if show_newyork
+    if in_newyork and not in_newyork[1]
+        // Session started
+        newyork_high := high
+        newyork_low := low
+        newyork_start_time := time
+        newyork_start_bar := bar_index
+    else if in_newyork
+        // Update session high/low
+        newyork_high := math.max(newyork_high, high)
+        newyork_low := math.min(newyork_low, low)
+    else if not in_newyork and in_newyork[1]
+        // Session ended, draw box
+        if not na(newyork_start_bar) and not na(newyork_high) and not na(newyork_low)
+            box_right = bar_index
+            session_box = box.new(newyork_start_bar, newyork_high, box_right, newyork_low, 
+                 border_color=color.new(color.green, 50), 
+                 bgcolor=newyork_color,
+                 border_width=1)
+            
+            // Add label
+            label.new(newyork_start_bar + (box_right - newyork_start_bar) / 2, newyork_high, 
+                 "NEW YORK", 
+                 color=color.new(color.green, 30),
+                 textcolor=color.white,
+                 style=label.style_label_down,
+                 size=size.small)
+
+// Optional: Plot current session highs and lows as lines for active sessions
+plot(in_asia and show_asia ? asia_high : na, "Asia High", color=color.blue, linewidth=1, style=plot.style_linebr)
+plot(in_asia and show_asia ? asia_low : na, "Asia Low", color=color.blue, linewidth=1, style=plot.style_linebr)
+
+plot(in_london and show_london ? london_high : na, "London High", color=color.orange, linewidth=1, style=plot.style_linebr)
+plot(in_london and show_london ? london_low : na, "London Low", color=color.orange, linewidth=1, style=plot.style_linebr)
+
+plot(in_newyork and show_newyork ? newyork_high : na, "New York High", color=color.green, linewidth=1, style=plot.style_linebr)
+plot(in_newyork and show_newyork ? newyork_low : na, "New York Low", color=color.green, linewidth=1, style=plot.style_linebr)

@@ -11,20 +11,19 @@ asia_color = input.color(color.new(color.blue, 85), "Asia Color", group="Colors"
 london_color = input.color(color.new(color.orange, 85), "London Color", group="Colors")
 newyork_color = input.color(color.new(color.green, 85), "New York Color", group="Colors")
 
-// Session times (in UTC)
+// Session times (in UTC) - works on any timeframe
 // Asia: 00:00-09:00 UTC
 // London: 07:00-16:00 UTC  
 // New York: 13:00-22:00 UTC (08:00-17:00 EST/EDT)
-// Note: User mentioned using New York Time (UTC-5), times are adjusted accordingly
 
-asia_session = "0000-0900"
-london_session = "0700-1600"
-newyork_session = "1300-2200"  // 8:00-17:00 EST/EDT (UTC-5/-4) = 13:00-22:00 UTC
+// Get current bar time in UTC
+current_hour = hour(time, "UTC")
+current_minute = minute(time, "UTC")
 
-// Session detection
-in_asia = time(timeframe.period, asia_session)
-in_london = time(timeframe.period, london_session)
-in_newyork = time(timeframe.period, newyork_session)
+// Session detection based on actual time (not timeframe-dependent)
+in_asia = current_hour >= 0 and current_hour < 9
+in_london = current_hour >= 7 and current_hour < 16
+in_newyork = current_hour >= 13 and current_hour < 22
 
 // Variables to track session data
 var float asia_high = na
@@ -129,12 +128,4 @@ if show_newyork
                  style=label.style_label_down,
                  size=size.small)
 
-// Optional: Plot current session highs and lows as lines for active sessions
-plot(in_asia and show_asia ? asia_high : na, "Asia High", color=color.blue, linewidth=1, style=plot.style_linebr)
-plot(in_asia and show_asia ? asia_low : na, "Asia Low", color=color.blue, linewidth=1, style=plot.style_linebr)
-
-plot(in_london and show_london ? london_high : na, "London High", color=color.orange, linewidth=1, style=plot.style_linebr)
-plot(in_london and show_london ? london_low : na, "London Low", color=color.orange, linewidth=1, style=plot.style_linebr)
-
-plot(in_newyork and show_newyork ? newyork_high : na, "New York High", color=color.green, linewidth=1, style=plot.style_linebr)
-plot(in_newyork and show_newyork ? newyork_low : na, "New York Low", color=color.green, linewidth=1, style=plot.style_linebr)
+// No additional plots - only boxes and labels as requested

@@ -13,7 +13,7 @@ input int      TrendLookback = 20;     // Trend Lookback Length
 input double   BE_Trigger    = 1.5;    // Move to Breakeven at (Risk Multiple)
 input double   TP1_Ratio     = 2.0;    // Banker Target (Reward Ratio)
 input double   TP2_Ratio     = 4.0;    // Runner Target (Reward Ratio)
-input double   RiskPercent   = 1.0;    // Risk per trade (% of Equity)
+input double   RiskPercent   = 1.0;    // Total Risk per trade - Both positions combined (% of Equity)
 
 input group "Time Zone Settings (EAT to NY)"
 input bool     UseTimeFilter     = true;
@@ -224,28 +224,63 @@ bool CheckStopLevel(ENUM_POSITION_TYPE type, double sl)
 
 double GetSplitLotSize(double slDistance)
   {
+   // Get symbol properties
    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-   double equity    = AccountInfoDouble(ACCOUNT_EQUITY);
-   double riskMoney = equity * (RiskPercent / 100.0);
-   
-   if(slDistance == 0 || tickValue == 0) return SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-   
-   double points = slDistance / _Point;
-   double lotSize = riskMoney / (points * tickValue);
-   
-   // Split into 2 trades
-   lotSize = lotSize / 2.0;
-   
-   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-   lotSize = MathFloor(lotSize / step) * step;
-   
+   double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
    double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
    
-   if(lotSize < minLot) lotSize = minLot;
-   if(lotSize > maxLot) lotSize = maxLot;
+   // Validate inputs
+   if(slDistance <= 0 || tickValue <= 0 || tickSize <= 0)
+     {
+      Print("Invalid parameters for lot calculation. Using minimum lot.");
+      return minLot;
+     }
    
-   return lotSize;
+   // Calculate total risk money for BOTH positions combined
+   double totalRiskMoney = equity * (RiskPercent / 100.0);
+   
+   // Calculate value of one point movement for one lot
+   // This properly converts tick value to point value
+   double pointValue = (tickValue / tickSize) * _Point;
+   
+   // Calculate stop loss in points
+   double slPoints = slDistance / _Point;
+   
+   // Calculate TOTAL lot size needed to risk the specified percentage
+   // Formula: Risk Money = Lot Size × Stop Loss in Points × Point Value
+   // Therefore: Lot Size = Risk Money / (Stop Loss in Points × Point Value)
+   double totalLotSize = totalRiskMoney / (slPoints * pointValue);
+   
+   // Since we open 2 positions (Banker and Runner), split the lot size
+   // Each position will risk half of the total risk percentage
+   double halfLots = totalLotSize / 2.0;
+   
+   // Normalize to step size (round down to nearest valid lot size)
+   halfLots = MathFloor(halfLots / step) * step;
+   
+   // Apply minimum and maximum lot size constraints
+   if(halfLots < minLot)
+     {
+      // For small accounts, ensure we can at least trade minimum lot
+      Print("Calculated lot size ", halfLots, " is below minimum. Using ", minLot);
+      halfLots = minLot;
+     }
+   
+   if(halfLots > maxLot)
+     {
+      Print("Calculated lot size ", halfLots, " exceeds maximum. Using ", maxLot);
+      halfLots = maxLot;
+     }
+   
+   // Log the calculation for debugging
+   Print("Position Sizing: Equity=", equity, " Risk%=", RiskPercent, 
+         " RiskMoney=", totalRiskMoney, " SL Points=", slPoints,
+         " Point Value=", pointValue, " Half Lots=", halfLots);
+   
+   return halfLots;
   }
 
 void ManageBreakeven()

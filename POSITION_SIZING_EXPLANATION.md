@@ -3,6 +3,23 @@
 ## Overview
 This document explains how the improved position sizing calculation works in the `robust_mq5.mq5` Expert Advisor and demonstrates how it addresses the leverage and small account issues.
 
+## Important Limitations
+
+### Small Account Warning
+⚠️ **CRITICAL**: With very small accounts and low risk percentages, the calculated position size may fall below the broker's minimum lot size (typically 0.01 lots). When this happens, the EA will use the minimum lot size, which means **your actual risk will be higher than the specified percentage**.
+
+**Example**: 
+- Account: $500, Risk: 0.5%, Stop Loss: 50 pips
+- Calculated lot size: 0.005 lots → Adjusted to 0.01 lots (minimum)
+- Specified risk: $2.50 (0.5%) → Actual risk: $5.00 (1.0%)
+
+**Recommendations**:
+- Minimum recommended account size: $1,000 for 1% risk
+- For accounts under $1,000: Use higher risk % or be aware actual risk will exceed specified %
+- Always check the EA logs to verify actual lot sizes being used
+
+---
+
 ## The Problem
 
 ### Before the Fix:

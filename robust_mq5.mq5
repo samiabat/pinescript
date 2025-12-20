@@ -276,6 +276,8 @@ double GetSplitLotSize(double slDistance)
      }
    
    // Log the calculation for debugging
+   // Note: This will log every time a position is calculated. 
+   // For production use with high-frequency trading, consider adding a debug flag
    Print("Position Sizing: Equity=", equity, " Risk%=", RiskPercent, 
          " RiskMoney=", totalRiskMoney, " SL Points=", slPoints,
          " Point Value=", pointValue, " Half Lots=", halfLots);

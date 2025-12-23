@@ -1,0 +1,275 @@
+//@version=5
+indicator("Trading Session SAMI", overlay=true, max_boxes_count=500, max_labels_count=500)
+
+// Input settings
+show_asia = input.bool(true, "Show Asia Session", group="Sessions")
+show_london = input.bool(true, "Show London Session", group="Sessions")
+show_newyork = input.bool(true, "Show New York Session", group="Sessions")
+show_killzones = input.bool(true, "Show ICT Kill Zones", group="Sessions")
+
+// Session colors
+asia_color = input.color(color.new(color.blue, 85), "Asia Color", group="Colors")
+london_color = input.color(color.new(color.orange, 85), "London Color", group="Colors")
+newyork_color = input.color(color.new(color.green, 85), "New York Color", group="Colors")
+killzone_color = input.color(color.new(color.fuchsia, 85), "Kill Zone Color", group="Colors")
+
+// Session times (in UTC) - works on any timeframe
+// Asia: 00:00-09:00 UTC
+// London: 07:00-16:00 UTC  
+// New York: 13:00-22:00 UTC (08:00-17:00 EST/EDT)
+// ICT Kill Zones:
+// - London Kill Zone: 07:00-10:00 UTC (02:00-05:00 EST)
+// - New York AM Kill Zone: 13:30-16:00 UTC (08:30-11:00 EST)
+// - New York PM Kill Zone: 18:30-21:00 UTC (13:30-16:00 EST)
+
+// Get current bar time in UTC
+current_hour = hour(time, "UTC")
+current_minute = minute(time, "UTC")
+current_time_minutes = current_hour * 60 + current_minute
+
+// Session detection based on actual time (not timeframe-dependent)
+in_asia = current_hour >= 0 and current_hour < 9
+in_london = current_hour >= 7 and current_hour < 16
+in_newyork = current_hour >= 13 and current_hour < 22
+
+// ICT Kill Zone detection
+in_london_kz = current_hour >= 7 and current_hour < 10
+in_ny_am_kz = (current_hour == 13 and current_minute >= 30) or (current_hour >= 14 and current_hour < 16)
+in_ny_pm_kz = (current_hour == 18 and current_minute >= 30) or (current_hour >= 19 and current_hour < 21)
+
+// Variables to track session data and boxes
+var float asia_high = na
+var float asia_low = na
+var int asia_start_bar = na
+var box asia_box = na
+var label asia_label = na
+
+var float london_high = na
+var float london_low = na
+var int london_start_bar = na
+var box london_box = na
+var label london_label = na
+
+var float newyork_high = na
+var float newyork_low = na
+var int newyork_start_bar = na
+var box newyork_box = na
+var label newyork_label = na
+
+var float london_kz_high = na
+var float london_kz_low = na
+var int london_kz_start_bar = na
+var box london_kz_box = na
+var label london_kz_label = na
+
+var float ny_am_kz_high = na
+var float ny_am_kz_low = na
+var int ny_am_kz_start_bar = na
+var box ny_am_kz_box = na
+var label ny_am_kz_label = na
+
+var float ny_pm_kz_high = na
+var float ny_pm_kz_low = na
+var int ny_pm_kz_start_bar = na
+var box ny_pm_kz_box = na
+var label ny_pm_kz_label = na
+
+// Asia Session Logic
+if show_asia
+    if in_asia and not in_asia[1]
+        // Session started - create new box and label
+        asia_high := high
+        asia_low := low
+        asia_start_bar := bar_index
+        
+        asia_box := box.new(asia_start_bar, asia_high, bar_index, asia_low, 
+             border_color=color.new(color.blue, 50), 
+             bgcolor=asia_color,
+             border_width=1)
+        
+        asia_label := label.new(asia_start_bar, asia_high, 
+             "ASIA", 
+             color=color.new(color.blue, 30),
+             textcolor=color.white,
+             style=label.style_label_down,
+             size=size.small)
+    else if in_asia
+        // Update session high/low and expand box
+        asia_high := math.max(asia_high, high)
+        asia_low := math.min(asia_low, low)
+        
+        if not na(asia_box)
+            box.set_top(asia_box, asia_high)
+            box.set_bottom(asia_box, asia_low)
+            box.set_right(asia_box, bar_index)
+            
+        if not na(asia_label)
+            label.set_y(asia_label, asia_high)
+            label.set_x(asia_label, asia_start_bar + math.floor((bar_index - asia_start_bar) / 2))
+
+// London Session Logic
+if show_london
+    if in_london and not in_london[1]
+        // Session started - create new box and label
+        london_high := high
+        london_low := low
+        london_start_bar := bar_index
+        
+        london_box := box.new(london_start_bar, london_high, bar_index, london_low, 
+             border_color=color.new(color.orange, 50), 
+             bgcolor=london_color,
+             border_width=1)
+        
+        london_label := label.new(london_start_bar, london_high, 
+             "LONDON", 
+             color=color.new(color.orange, 30),
+             textcolor=color.white,
+             style=label.style_label_down,
+             size=size.small)
+    else if in_london
+        // Update session high/low and expand box
+        london_high := math.max(london_high, high)
+        london_low := math.min(london_low, low)
+        
+        if not na(london_box)
+            box.set_top(london_box, london_high)
+            box.set_bottom(london_box, london_low)
+            box.set_right(london_box, bar_index)
+            
+        if not na(london_label)
+            label.set_y(london_label, london_high)
+            label.set_x(london_label, london_start_bar + math.floor((bar_index - london_start_bar) / 2))
+
+// New York Session Logic
+if show_newyork
+    if in_newyork and not in_newyork[1]
+        // Session started - create new box and label
+        newyork_high := high
+        newyork_low := low
+        newyork_start_bar := bar_index
+        
+        newyork_box := box.new(newyork_start_bar, newyork_high, bar_index, newyork_low, 
+             border_color=color.new(color.green, 50), 
+             bgcolor=newyork_color,
+             border_width=1)
+        
+        newyork_label := label.new(newyork_start_bar, newyork_high, 
+             "NEW YORK", 
+             color=color.new(color.green, 30),
+             textcolor=color.white,
+             style=label.style_label_down,
+             size=size.small)
+    else if in_newyork
+        // Update session high/low and expand box
+        newyork_high := math.max(newyork_high, high)
+        newyork_low := math.min(newyork_low, low)
+        
+        if not na(newyork_box)
+            box.set_top(newyork_box, newyork_high)
+            box.set_bottom(newyork_box, newyork_low)
+            box.set_right(newyork_box, bar_index)
+            
+        if not na(newyork_label)
+            label.set_y(newyork_label, newyork_high)
+            label.set_x(newyork_label, newyork_start_bar + math.floor((bar_index - newyork_start_bar) / 2))
+
+// London Kill Zone Logic
+if show_killzones
+    if in_london_kz and not in_london_kz[1]
+        // Kill zone started - create new box and label
+        london_kz_high := high
+        london_kz_low := low
+        london_kz_start_bar := bar_index
+        
+        london_kz_box := box.new(london_kz_start_bar, london_kz_high, bar_index, london_kz_low, 
+             border_color=color.new(color.fuchsia, 50), 
+             bgcolor=killzone_color,
+             border_width=1)
+        
+        london_kz_label := label.new(london_kz_start_bar, london_kz_high, 
+             "LONDON KZ", 
+             color=color.new(color.fuchsia, 30),
+             textcolor=color.white,
+             style=label.style_label_down,
+             size=size.small)
+    else if in_london_kz
+        // Update kill zone high/low and expand box
+        london_kz_high := math.max(london_kz_high, high)
+        london_kz_low := math.min(london_kz_low, low)
+        
+        if not na(london_kz_box)
+            box.set_top(london_kz_box, london_kz_high)
+            box.set_bottom(london_kz_box, london_kz_low)
+            box.set_right(london_kz_box, bar_index)
+            
+        if not na(london_kz_label)
+            label.set_y(london_kz_label, london_kz_high)
+            label.set_x(london_kz_label, london_kz_start_bar + math.floor((bar_index - london_kz_start_bar) / 2))
+
+// New York AM Kill Zone Logic
+if show_killzones
+    if in_ny_am_kz and not in_ny_am_kz[1]
+        // Kill zone started - create new box and label
+        ny_am_kz_high := high
+        ny_am_kz_low := low
+        ny_am_kz_start_bar := bar_index
+        
+        ny_am_kz_box := box.new(ny_am_kz_start_bar, ny_am_kz_high, bar_index, ny_am_kz_low, 
+             border_color=color.new(color.fuchsia, 50), 
+             bgcolor=killzone_color,
+             border_width=1)
+        
+        ny_am_kz_label := label.new(ny_am_kz_start_bar, ny_am_kz_high, 
+             "NY AM KZ", 
+             color=color.new(color.fuchsia, 30),
+             textcolor=color.white,
+             style=label.style_label_down,
+             size=size.small)
+    else if in_ny_am_kz
+        // Update kill zone high/low and expand box
+        ny_am_kz_high := math.max(ny_am_kz_high, high)
+        ny_am_kz_low := math.min(ny_am_kz_low, low)
+        
+        if not na(ny_am_kz_box)
+            box.set_top(ny_am_kz_box, ny_am_kz_high)
+            box.set_bottom(ny_am_kz_box, ny_am_kz_low)
+            box.set_right(ny_am_kz_box, bar_index)
+            
+        if not na(ny_am_kz_label)
+            label.set_y(ny_am_kz_label, ny_am_kz_high)
+            label.set_x(ny_am_kz_label, ny_am_kz_start_bar + math.floor((bar_index - ny_am_kz_start_bar) / 2))
+
+// New York PM Kill Zone Logic
+if show_killzones
+    if in_ny_pm_kz and not in_ny_pm_kz[1]
+        // Kill zone started - create new box and label
+        ny_pm_kz_high := high
+        ny_pm_kz_low := low
+        ny_pm_kz_start_bar := bar_index
+        
+        ny_pm_kz_box := box.new(ny_pm_kz_start_bar, ny_pm_kz_high, bar_index, ny_pm_kz_low, 
+             border_color=color.new(color.fuchsia, 50), 
+             bgcolor=killzone_color,
+             border_width=1)
+        
+        ny_pm_kz_label := label.new(ny_pm_kz_start_bar, ny_pm_kz_high, 
+             "NY PM KZ", 
+             color=color.new(color.fuchsia, 30),
+             textcolor=color.white,
+             style=label.style_label_down,
+             size=size.small)
+    else if in_ny_pm_kz
+        // Update kill zone high/low and expand box
+        ny_pm_kz_high := math.max(ny_pm_kz_high, high)
+        ny_pm_kz_low := math.min(ny_pm_kz_low, low)
+        
+        if not na(ny_pm_kz_box)
+            box.set_top(ny_pm_kz_box, ny_pm_kz_high)
+            box.set_bottom(ny_pm_kz_box, ny_pm_kz_low)
+            box.set_right(ny_pm_kz_box, bar_index)
+            
+        if not na(ny_pm_kz_label)
+            label.set_y(ny_pm_kz_label, ny_pm_kz_high)
+            label.set_x(ny_pm_kz_label, ny_pm_kz_start_bar + math.floor((bar_index - ny_pm_kz_start_bar) / 2))
+
+// No additional plots - only boxes and labels as requested
